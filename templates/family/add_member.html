@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Add Family Member | HealthTrack{% endblock %}
+{% block page_title %}Add Family Member{% endblock %}
+{% block content %}
+<style>
+.add-hero{background:linear-gradient(135deg,#142d4c,#4f3b78);border-radius:var(--radius-lg);padding:26px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;}
+.add-hero-title{font-family:'Fraunces',serif;font-size:26px;font-weight:900;}
+.form-card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;max-width:720px;margin:0 auto;}
+.form-hdr{background:linear-gradient(135deg,var(--navy),#1e3f6e);padding:18px 24px;}
+.form-hdr-title{font-family:'Fraunces',serif;font-size:17px;font-weight:700;color:white;}
+.form-body{padding:24px;}
+.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media(max-width:600px){.form-grid-2{grid-template-columns:1fr;}}
+.fg{margin-bottom:16px;}
+.fl{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:7px;}
+.fi{width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:11px 14px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text-primary);background:var(--input-bg);outline:none;transition:border-color 0.2s;}
+.fi:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+.cond-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;margin-top:6px;}
+.cond-opt{position:relative;}
+.cond-opt input{position:absolute;opacity:0;width:0;height:0;}
+.cond-btn{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:var(--radius-sm);border:1.5px solid var(--border);background:var(--input-bg);cursor:pointer;font-size:12px;font-weight:600;color:var(--text-muted);transition:all 0.15s;}
+.cond-opt input:checked + .cond-btn{border-color:var(--accent);background:var(--accent-pale);color:var(--accent-dark);}
+.save-btn{width:100%;background:linear-gradient(135deg,var(--sage),var(--mint));color:var(--navy);border:none;border-radius:var(--radius-sm);padding:13px;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:transform 0.18s,box-shadow 0.18s;margin-top:8px;}
+.save-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(97,179,144,0.35);}
+</style>
+<div class="add-hero animate-fadeIn">
+  <div>
+    <div class="add-hero-title">👨‍👩‍👧 Add Family Member</div>
+    <div style="font-size:14px;opacity:0.75;">Create a health profile for a family member.</div>
+  </div>
+  <a href="{{ url_for('family.dashboard') }}" style="background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.3);border-radius:var(--radius-sm);padding:9px 18px;font-size:13px;font-weight:600;text-decoration:none;">← Back</a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat,msg in messages %}
+<div class="alert-banner {{ cat }} animate-fadeIn"><span>{{ msg }}</span></div>
+{% endfor %}{% endif %}{% endwith %}
+
+<div class="form-card animate-fadeIn">
+  <div class="form-hdr"><div class="form-hdr-title">👤 Member Details</div></div>
+  <div class="form-body">
+    <form method="POST" action="{{ url_for('family.add_member') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-grid-2">
+        <div class="fg" style="grid-column:span 2;">
+          <label class="fl">Full Name *</label>
+          <input type="text" name="name" class="fi" placeholder="e.g. Ramesh Sharma" required>
+        </div>
+        <div class="fg">
+          <label class="fl">Relation</label>
+          <select name="relation" class="fi" style="appearance:none;">
+            <option value="">Select...</option>
+            {% for r in ['Spouse','Parent','Child','Sibling','Grandparent','Other'] %}
+            <option value="{{ r.lower() }}">{{ r }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Gender</label>
+          <select name="gender" class="fi" style="appearance:none;">
+            <option value="">Select...</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Date of Birth</label>
+          <input type="date" name="date_of_birth" class="fi">
+        </div>
+        <div class="fg">
+          <label class="fl">Blood Group</label>
+          <select name="blood_group" class="fi" style="appearance:none;">
+            <option value="">Select...</option>
+            {% for bg in ['A+','A-','B+','B-','AB+','AB-','O+','O-'] %}
+            <option value="{{ bg }}">{{ bg }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Height (cm)</label>
+          <input type="number" name="height_cm" class="fi" placeholder="165" min="50" max="250" step="0.1">
+        </div>
+        <div class="fg">
+          <label class="fl">Weight (kg)</label>
+          <input type="number" name="weight_kg" class="fi" placeholder="70" min="5" max="300" step="0.1">
+        </div>
+        <div class="fg" style="grid-column:span 2;">
+          <label class="fl">Emergency Contact</label>
+          <input type="text" name="emergency_contact" class="fi" placeholder="Name: Phone number">
+        </div>
+      </div>
+
+      <div class="fg" style="margin-top:8px;">
+        <label class="fl">Health Conditions</label>
+        <div class="cond-grid">
+          {% for cond in ['High Blood Pressure','Type 2 Diabetes','High Cholesterol','Heart Disease','Thyroid','PCOS/PCOD','Kidney Disease','Healthy'] %}
+          <label class="cond-opt">
+            <input type="checkbox" name="conditions" value="{{ cond }}">
+            <div class="cond-btn">{{ cond }}</div>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="fg">
+        <label class="fl">Notes</label>
+        <textarea name="notes" class="fi" rows="2" placeholder="Any health notes..."></textarea>
+      </div>
+
+      <button type="submit" class="save-btn">➕ Add Family Member</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

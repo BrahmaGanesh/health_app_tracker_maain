@@ -1,0 +1,308 @@
+{% extends "base.html" %}
+{% block title %}Stopwatch & Timer | HealthTrack{% endblock %}
+{% block page_title %}Stopwatch & Timer{% endblock %}
+{% block content %}
+<style>
+.sw-hero{background:linear-gradient(135deg,#142d4c,#1e3f6e,#4f3b78);border-radius:var(--radius-lg);padding:24px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.sw-hero-title{font-family:'Fraunces',serif;font-size:26px;font-weight:900;}
+.tools-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px;}
+@media(max-width:768px){.tools-grid{grid-template-columns:1fr;}}
+.tool-card{background:var(--card-bg);border-radius:var(--radius-lg);border:1px solid var(--border);box-shadow:var(--shadow-sm);padding:30px;text-align:center;animation:fadeUp 0.4s ease both;}
+.display{font-family:'DM Mono',monospace;font-size:clamp(48px,8vw,80px);font-weight:500;color:var(--text-primary);letter-spacing:4px;line-height:1;margin:20px 0;transition:color 0.3s;}
+.display.running{color:#047857;}
+.display.paused{color:#f59e0b;}
+.ctrl-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px;}
+.ctrl-btn{border:none;border-radius:var(--radius-sm);padding:12px 24px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:transform 0.15s,box-shadow 0.15s;display:flex;align-items:center;gap:6px;}
+.ctrl-btn:hover{transform:translateY(-2px);}
+.btn-start{background:linear-gradient(135deg,#047857,#10b981);color:white;box-shadow:0 4px 14px rgba(4,120,87,0.3);}
+.btn-pause{background:linear-gradient(135deg,#d97706,#f59e0b);color:white;}
+.btn-stop{background:linear-gradient(135deg,#dc2626,#ef4444);color:white;}
+.btn-lap{background:var(--bg);color:var(--text-primary);border:1.5px solid var(--border);}
+.btn-reset{background:var(--bg);color:var(--text-muted);border:1.5px solid var(--border);}
+.laps-list{max-height:200px;overflow-y:auto;margin-top:12px;}
+.lap-item{display:flex;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--border);font-size:13px;font-family:'DM Mono',monospace;}
+.lap-item:last-child{border-bottom:none;}
+.lap-num{color:var(--text-muted);}
+.lap-time{font-weight:600;color:var(--text-primary);}
+.lap-split{color:var(--accent);}
+.section-title{font-family:'Fraunces',serif;font-size:16px;font-weight:700;color:var(--text-primary);margin-bottom:12px;}
+/* Timer inputs */
+.timer-inputs{display:flex;gap:10px;justify-content:center;align-items:center;margin:16px 0;}
+.timer-unit{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.timer-num{width:70px;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px;font-family:'DM Mono',monospace;font-size:24px;text-align:center;color:var(--text-primary);background:var(--input-bg);outline:none;}
+.timer-num:focus{border-color:var(--accent);}
+.timer-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);}
+.timer-sep{font-family:'DM Mono',monospace;font-size:36px;color:var(--text-muted);font-weight:300;padding-bottom:16px;}
+.timer-display{font-family:'DM Mono',monospace;font-size:clamp(48px,8vw,72px);font-weight:500;letter-spacing:4px;margin:16px 0;transition:color 0.3s;}
+.timer-display.running{color:#3b82f6;}
+.timer-display.done{color:#ef4444;animation:blink 0.5s ease infinite alternate;}
+@keyframes blink{from{opacity:1;}to{opacity:0.3;}}
+.save-session{background:var(--accent-pale);border:1px solid var(--accent-border);border-radius:var(--radius-sm);padding:14px;margin-top:14px;display:none;}
+.save-session.show{display:block;}
+</style>
+
+<div class="sw-hero animate-fadeIn">
+  <div>
+    <div class="sw-hero-title">⏱️ Stopwatch & Timer</div>
+    <div style="font-size:13px;opacity:0.75;">Track your workout duration precisely</div>
+  </div>
+  <a href="{{ url_for('exercise.dashboard') }}" style="background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.25);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none;">← Exercise Hub</a>
+</div>
+
+<div class="tools-grid">
+
+  <!-- STOPWATCH -->
+  <div class="tool-card">
+    <div class="section-title">⏱️ Stopwatch</div>
+    <div class="display" id="swDisplay">00:00:00</div>
+    <div class="ctrl-row">
+      <button class="ctrl-btn btn-start" id="swStartBtn" onclick="swStart()">▶ Start</button>
+      <button class="ctrl-btn btn-pause" id="swPauseBtn" onclick="swPause()" style="display:none;">⏸ Pause</button>
+      <button class="ctrl-btn btn-lap" onclick="swLap()" id="swLapBtn" style="display:none;">🏁 Lap</button>
+      <button class="ctrl-btn btn-stop" onclick="swStop()" id="swStopBtn" style="display:none;">⏹ Stop</button>
+      <button class="ctrl-btn btn-reset" onclick="swReset()">↺ Reset</button>
+    </div>
+
+    <!-- Laps -->
+    <div id="lapsWrap" style="display:none;">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:6px;">Laps</div>
+      <div class="laps-list" id="lapsList"></div>
+    </div>
+
+    <!-- Save session -->
+    <div class="save-session" id="saveSess">
+      <div style="font-size:13px;font-weight:600;color:var(--accent-dark);margin-bottom:10px;">Save this session?</div>
+      <form method="POST" action="{{ url_for('exercise.log_exercise') }}" id="saveForm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="duration_minutes" id="saveMinutes">
+        <input type="number" name="calories_burned" placeholder="Calories burned (optional)" style="width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;background:var(--input-bg);outline:none;margin-bottom:8px;">
+        <select name="exercise_name" style="width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;background:var(--input-bg);outline:none;margin-bottom:8px;appearance:none;">
+          <option value="Timed Workout">Timed Workout</option>
+          <option value="Running">Running</option>
+          <option value="Walking">Walking</option>
+          <option value="Cycling">Cycling</option>
+          <option value="HIIT">HIIT</option>
+          <option value="Yoga">Yoga</option>
+          <option value="Strength Training">Strength Training</option>
+        </select>
+        <select name="exercise_type" style="width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;background:var(--input-bg);outline:none;margin-bottom:8px;appearance:none;">
+          <option value="cardio">Cardio</option>
+          <option value="strength">Strength</option>
+          <option value="yoga">Yoga</option>
+          <option value="other">Other</option>
+        </select>
+        <button type="submit" style="width:100%;background:linear-gradient(135deg,var(--sage),var(--mint));color:var(--navy);border:none;border-radius:var(--radius-sm);padding:10px;font-size:13px;font-weight:700;cursor:pointer;">💾 Save Session</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- COUNTDOWN TIMER -->
+  <div class="tool-card" style="animation-delay:0.1s;">
+    <div class="section-title">⏰ Countdown Timer</div>
+    <div id="timerInputs">
+      <div class="timer-inputs">
+        <div class="timer-unit">
+          <input type="number" class="timer-num" id="timerH" placeholder="00" min="0" max="23" value="0">
+          <div class="timer-label">Hours</div>
+        </div>
+        <div class="timer-sep">:</div>
+        <div class="timer-unit">
+          <input type="number" class="timer-num" id="timerM" placeholder="30" min="0" max="59" value="30">
+          <div class="timer-label">Mins</div>
+        </div>
+        <div class="timer-sep">:</div>
+        <div class="timer-unit">
+          <input type="number" class="timer-num" id="timerS" placeholder="00" min="0" max="59" value="0">
+          <div class="timer-label">Secs</div>
+        </div>
+      </div>
+      <!-- Quick presets -->
+      <div style="display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin-bottom:12px;">
+        {% for label, mins in [('5 min',5),('10 min',10),('15 min',15),('20 min',20),('30 min',30),('45 min',45)] %}
+        <button onclick="setTimer({{ mins }})" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:5px 12px;font-size:12px;font-weight:600;color:var(--text-muted);cursor:pointer;transition:all 0.15s;" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">{{ label }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="timer-display" id="timerDisplay">00:30:00</div>
+    <div class="ctrl-row">
+      <button class="ctrl-btn btn-start" id="timerStartBtn" onclick="timerStart()">▶ Start</button>
+      <button class="ctrl-btn btn-pause" id="timerPauseBtn" onclick="timerPause()" style="display:none;">⏸ Pause</button>
+      <button class="ctrl-btn btn-stop" onclick="timerStop()" id="timerStopBtn" style="display:none;">⏹ Stop</button>
+      <button class="ctrl-btn btn-reset" onclick="timerReset()">↺ Reset</button>
+    </div>
+    <div id="timerDoneMsg" style="display:none;background:#dcfce7;border-radius:var(--radius-sm);padding:14px;font-size:15px;font-weight:700;color:#166534;margin-top:12px;">
+      🎉 Timer Complete! Great work!
+    </div>
+    <!-- Timer sound toggle -->
+    <div style="display:flex;align-items:center;gap:10px;justify-content:center;margin-top:12px;font-size:13px;color:var(--text-muted);">
+      <input type="checkbox" id="soundToggle" checked style="width:16px;height:16px;">
+      <label for="soundToggle">Sound alert when done</label>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ══════════ STOPWATCH ════════════════════════════════════════
+let swInterval = null, swStartTime = null, swElapsed = 0, swRunning = false;
+let laps = [], lapStart = 0;
+
+function swFormat(ms) {
+  const h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000), s = Math.floor((ms%60000)/1000);
+  return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function swStart() {
+  if (swRunning) return;
+  swRunning = true; swStartTime = Date.now() - swElapsed;
+  swInterval = setInterval(() => {
+    swElapsed = Date.now() - swStartTime;
+    document.getElementById('swDisplay').textContent = swFormat(swElapsed);
+    document.getElementById('swDisplay').className = 'display running';
+  }, 50);
+  document.getElementById('swStartBtn').style.display = 'none';
+  document.getElementById('swPauseBtn').style.display = '';
+  document.getElementById('swLapBtn').style.display   = '';
+  document.getElementById('swStopBtn').style.display  = '';
+}
+
+function swPause() {
+  clearInterval(swInterval); swRunning = false;
+  document.getElementById('swDisplay').className = 'display paused';
+  document.getElementById('swPauseBtn').style.display = 'none';
+  document.getElementById('swStartBtn').style.display = '';
+  document.getElementById('swStartBtn').innerHTML = '▶ Resume';
+}
+
+function swLap() {
+  const lapTime = swElapsed - lapStart;
+  laps.push({num: laps.length+1, total: swElapsed, split: lapTime});
+  lapStart = swElapsed;
+  renderLaps();
+  document.getElementById('lapsWrap').style.display = '';
+}
+
+function swStop() {
+  clearInterval(swInterval); swRunning = false;
+  document.getElementById('swDisplay').className = 'display';
+  const mins = Math.ceil(swElapsed / 60000);
+  document.getElementById('saveMinutes').value = mins;
+  document.getElementById('saveSess').classList.add('show');
+  document.getElementById('swStartBtn').style.display = '';
+  document.getElementById('swPauseBtn').style.display = 'none';
+  document.getElementById('swLapBtn').style.display   = 'none';
+  document.getElementById('swStopBtn').style.display  = 'none';
+  document.getElementById('swStartBtn').innerHTML = '▶ Start';
+}
+
+function swReset() {
+  clearInterval(swInterval); swRunning = false; swElapsed = 0; lapStart = 0; laps = [];
+  document.getElementById('swDisplay').textContent = '00:00:00';
+  document.getElementById('swDisplay').className   = 'display';
+  document.getElementById('swStartBtn').style.display = '';
+  document.getElementById('swStartBtn').innerHTML    = '▶ Start';
+  document.getElementById('swPauseBtn').style.display = 'none';
+  document.getElementById('swLapBtn').style.display   = 'none';
+  document.getElementById('swStopBtn').style.display  = 'none';
+  document.getElementById('lapsWrap').style.display   = 'none';
+  document.getElementById('saveSess').classList.remove('show');
+  document.getElementById('lapsList').innerHTML = '';
+}
+
+function renderLaps() {
+  const list = document.getElementById('lapsList');
+  list.innerHTML = laps.slice().reverse().map(l =>
+    `<div class="lap-item">
+      <span class="lap-num">Lap ${l.num}</span>
+      <span class="lap-time">${swFormat(l.total)}</span>
+      <span class="lap-split">+${swFormat(l.split)}</span>
+    </div>`
+  ).join('');
+}
+
+// ══════════ COUNTDOWN TIMER ═══════════════════════════════════
+let timerInterval = null, timerRemaining = 0, timerRunning = false, timerTotal = 0;
+
+function setTimer(mins) {
+  document.getElementById('timerH').value = 0;
+  document.getElementById('timerM').value = mins;
+  document.getElementById('timerS').value = 0;
+  timerReset();
+  updateTimerDisplay(mins * 60 * 1000);
+}
+
+function getTimerMs() {
+  const h = parseInt(document.getElementById('timerH').value)||0;
+  const m = parseInt(document.getElementById('timerM').value)||0;
+  const s = parseInt(document.getElementById('timerS').value)||0;
+  return (h*3600 + m*60 + s) * 1000;
+}
+
+function updateTimerDisplay(ms) {
+  const h = Math.floor(ms/3600000), m = Math.floor((ms%3600000)/60000), s = Math.ceil((ms%60000)/1000);
+  document.getElementById('timerDisplay').textContent =
+    `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+function timerStart() {
+  timerTotal = timerRemaining > 0 ? timerRemaining : getTimerMs();
+  if (timerTotal <= 0) return;
+  timerRemaining = timerTotal; timerRunning = true;
+  const end = Date.now() + timerRemaining;
+  document.getElementById('timerInputs').style.opacity = '0.4';
+  document.getElementById('timerStartBtn').style.display = 'none';
+  document.getElementById('timerPauseBtn').style.display = '';
+  document.getElementById('timerStopBtn').style.display  = '';
+  document.getElementById('timerDoneMsg').style.display  = 'none';
+
+  timerInterval = setInterval(() => {
+    timerRemaining = Math.max(0, end - Date.now());
+    updateTimerDisplay(timerRemaining);
+    document.getElementById('timerDisplay').className = 'timer-display running';
+    if (timerRemaining <= 0) {
+      clearInterval(timerInterval);
+      timerRunning = false;
+      document.getElementById('timerDisplay').className = 'timer-display done';
+      document.getElementById('timerDisplay').textContent = '00:00:00';
+      document.getElementById('timerDoneMsg').style.display = '';
+      document.getElementById('timerStartBtn').style.display = '';
+      document.getElementById('timerPauseBtn').style.display = 'none';
+      document.getElementById('timerStopBtn').style.display  = 'none';
+      // Play sound
+      if (document.getElementById('soundToggle').checked) {
+        if (window.HealthNotifications) HealthNotifications.playSound('gentle');
+        else try { new Audio('/static/sounds/gentle.mp3').play(); } catch(e) {}
+      }
+    }
+  }, 100);
+}
+
+function timerPause() {
+  clearInterval(timerInterval); timerRunning = false;
+  document.getElementById('timerDisplay').className = 'timer-display paused';
+  document.getElementById('timerPauseBtn').style.display = 'none';
+  document.getElementById('timerStartBtn').style.display = '';
+  document.getElementById('timerStartBtn').innerHTML = '▶ Resume';
+}
+
+function timerStop() {
+  clearInterval(timerInterval); timerRunning = false; timerRemaining = 0;
+  document.getElementById('timerDisplay').className = 'timer-display';
+  document.getElementById('timerStartBtn').style.display = '';
+  document.getElementById('timerStartBtn').innerHTML = '▶ Start';
+  document.getElementById('timerPauseBtn').style.display = 'none';
+  document.getElementById('timerStopBtn').style.display  = 'none';
+  document.getElementById('timerInputs').style.opacity  = '1';
+  updateTimerDisplay(getTimerMs());
+}
+
+function timerReset() { timerStop(); document.getElementById('timerDoneMsg').style.display='none'; }
+
+// Init timer display
+updateTimerDisplay(getTimerMs());
+document.getElementById('timerM').addEventListener('input', () => updateTimerDisplay(getTimerMs()));
+document.getElementById('timerH').addEventListener('input', () => updateTimerDisplay(getTimerMs()));
+document.getElementById('timerS').addEventListener('input', () => updateTimerDisplay(getTimerMs()));
+</script>
+{% endblock %}

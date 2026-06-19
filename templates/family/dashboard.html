@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Family Health | HealthTrack{% endblock %}
+{% block page_title %}Family Health{% endblock %}
+{% block content %}
+<style>
+.fam-hero{background:linear-gradient(135deg,#142d4c,#4f3b78);border-radius:var(--radius-lg);padding:26px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;position:relative;overflow:hidden;}
+.fam-hero::after{content:'👨‍👩‍👧';position:absolute;right:30px;top:50%;transform:translateY(-50%);font-size:100px;opacity:0.1;}
+.hero-title{font-family:'Fraunces',serif;font-size:clamp(20px,3vw,30px);font-weight:900;margin-bottom:6px;position:relative;}
+.fam-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:18px;}
+.member-card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;transition:var(--transition);animation:fadeUp 0.4s ease both;}
+.member-card:hover{transform:translateY(-4px);box-shadow:var(--shadow);}
+.mc-avatar{height:80px;display:flex;align-items:center;justify-content:center;font-size:36px;font-family:'Fraunces',serif;font-weight:900;color:white;}
+.mc-body{padding:16px;}
+.mc-name{font-family:'Fraunces',serif;font-size:17px;font-weight:700;color:var(--text-primary);margin-bottom:3px;}
+.mc-meta{font-size:12px;color:var(--text-muted);margin-bottom:12px;}
+.mc-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+.mc-stat{background:var(--bg);border-radius:var(--radius-sm);padding:8px;text-align:center;}
+.mc-stat-val{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;display:block;}
+.mc-stat-lbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;}
+.mc-btn{display:block;background:var(--navy);color:white;border-radius:var(--radius-xs);padding:8px 12px;font-size:12px;font-weight:600;text-align:center;text-decoration:none;transition:all 0.15s;}
+.mc-btn:hover{background:var(--violet);color:white;}
+.add-card{background:var(--card-bg);border-radius:var(--radius);border:2px dashed var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;text-decoration:none;transition:all 0.18s;min-height:200px;}
+.add-card:hover{border-color:var(--accent);background:var(--accent-pale);}
+</style>
+<div class="fam-hero animate-fadeIn">
+  <div>
+    <div class="hero-title">Family Health Manager</div>
+    <div style="font-size:14px;opacity:0.75;position:relative;">Track health for every family member in one place.</div>
+  </div>
+  <a href="{{ url_for('family.add_member') }}" style="background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.3);border-radius:var(--radius-sm);padding:10px 18px;font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:6px;position:relative;">+ Add Member</a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat,msg in messages %}
+<div class="alert-banner {{ cat }} animate-fadeIn"><span class="alert-banner-icon">{% if cat=='success' %}✅{% else %}⚠️{% endif %}</span><span>{{ msg }}</span></div>
+{% endfor %}{% endif %}{% endwith %}
+
+<div class="fam-grid">
+  {% set colors = ['linear-gradient(135deg,#142d4c,#1e3f6e)','linear-gradient(135deg,#4f3b78,#6d28d9)','linear-gradient(135deg,#065f46,#047857)','linear-gradient(135deg,#7c2d12,#b91c1c)'] %}
+  {% for fd in family_data %}
+  {% set m = fd.member %}
+  <div class="member-card stagger-{{ loop.index }}">
+    <div class="mc-avatar" style="background:{{ colors[(loop.index0) % 4] }};">{{ m.name[0].upper() }}</div>
+    <div class="mc-body">
+      <div class="mc-name">{{ m.name }}</div>
+      <div class="mc-meta">
+        {% if m.relation %}{{ m.relation|title }} · {% endif %}
+        {% if m.age %}{{ m.age }} yrs{% endif %}
+        {% if m.gender %}, {{ m.gender|title }}{% endif %}
+        {% if m.blood_group %} · {{ m.blood_group }}{% endif %}
+      </div>
+      <div class="mc-stats">
+        <div class="mc-stat">
+          <span class="mc-stat-val" style="{% if fd.latest_bp and fd.latest_bp.value_1 >= 140 %}color:#ef4444;{% else %}color:var(--sage);{% endif %}">
+            {% if fd.latest_bp %}{{ fd.latest_bp.value_1|int }}/{{ fd.latest_bp.value_2|int }}{% else %}—{% endif %}
+          </span>
+          <span class="mc-stat-lbl">BP mmHg</span>
+        </div>
+        <div class="mc-stat">
+          <span class="mc-stat-val" style="color:var(--violet);">{% if fd.latest_weight %}{{ fd.latest_weight.value_1 }}kg{% else %}—{% endif %}</span>
+          <span class="mc-stat-lbl">Weight</span>
+        </div>
+        {% if m.bmi %}
+        <div class="mc-stat">
+          <span class="mc-stat-val">{{ m.bmi }}</span>
+          <span class="mc-stat-lbl">BMI</span>
+        </div>
+        {% endif %}
+        {% if m.conditions %}
+        <div class="mc-stat">
+          <span class="mc-stat-val" style="font-size:10px;font-family:'DM Sans',sans-serif;">{{ m.conditions[:2]|join(', ') }}</span>
+          <span class="mc-stat-lbl">Conditions</span>
+        </div>
+        {% endif %}
+      </div>
+      <a href="{{ url_for('family.member_profile', member_id=m.id) }}" class="mc-btn">View Profile →</a>
+    </div>
+  </div>
+  {% endfor %}
+  <a href="{{ url_for('family.add_member') }}" class="add-card">
+    <span style="font-size:40px;margin-bottom:12px;">➕</span>
+    <span style="font-size:14px;font-weight:600;color:var(--text-muted);">Add Family Member</span>
+  </a>
+</div>
+{% endblock %}

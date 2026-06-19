@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Exercise Library | HealthTrack{% endblock %}
+{% block page_title %}Exercise Library{% endblock %}
+{% block content %}
+<style>
+.lib-hero{background:linear-gradient(135deg,#064e3b,#065f46,#047857);border-radius:var(--radius-lg);padding:24px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.hero-title{font-family:'Fraunces',serif;font-size:26px;font-weight:900;}
+.filter-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;}
+.filter-chip{background:var(--card-bg);border:1.5px solid var(--border);border-radius:100px;padding:7px 16px;font-size:12px;font-weight:600;color:var(--text-muted);text-decoration:none;transition:all 0.15s;}
+.filter-chip.active{background:var(--navy);color:white;border-color:var(--navy);}
+.lib-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;}
+.ex-card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;transition:var(--transition);animation:fadeUp 0.4s ease both;}
+.ex-card:hover{transform:translateY(-5px);box-shadow:var(--shadow-lg);}
+.ex-img{height:150px;background-size:cover;background-position:center;display:flex;align-items:center;justify-content:center;font-size:48px;position:relative;}
+.ex-img.cardio{background:linear-gradient(135deg,#fee2e2,#fecaca);}
+.ex-img.strength{background:linear-gradient(135deg,#dbeafe,#bfdbfe);}
+.ex-img.yoga{background:linear-gradient(135deg,#ede9fe,#ddd6fe);}
+.ex-img.flexibility{background:linear-gradient(135deg,#d1fae5,#a7f3d0);}
+.ex-img.breathing{background:linear-gradient(135deg,#dcfce7,#bbf7d0);}
+.ex-img.sports{background:linear-gradient(135deg,#fef3c7,#fde68a);}
+.bp-badge{position:absolute;top:8px;right:8px;background:rgba(255,255,255,0.92);border-radius:100px;padding:3px 10px;font-size:10px;font-weight:700;color:#166534;}
+.ex-body{padding:14px 16px;}
+.ex-name{font-family:'Fraunces',serif;font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:5px;}
+.ex-meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+.ex-chip{background:var(--bg);border-radius:100px;padding:3px 9px;font-size:10px;font-weight:600;color:var(--text-muted);}
+.ex-desc{font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.ex-cal{font-family:'DM Mono',monospace;font-size:12px;color:#047857;font-weight:600;}
+</style>
+
+<div class="lib-hero animate-fadeIn">
+  <div>
+    <div class="hero-title">📚 Exercise Library</div>
+    <div style="font-size:13px;opacity:0.75;">{{ exercises|length }} exercises — filtered for your health conditions</div>
+  </div>
+  <a href="{{ url_for('exercise.dashboard') }}" style="background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.25);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none;">← Exercise Hub</a>
+</div>
+
+<!-- FILTERS -->
+<div class="filter-bar">
+  {% for cat in ['all'] + categories %}
+  <a href="?category={{ cat }}&difficulty={{ selected_difficulty }}{% if request.args.get('bp_safe') %}&bp_safe=1{% endif %}"
+     class="filter-chip {% if selected_category == cat %}active{% endif %}">
+    {{ cat|title if cat != 'all' else 'All' }}
+  </a>
+  {% endfor %}
+  <span style="width:1px;background:var(--border);"></span>
+  {% for diff in ['all','beginner','intermediate','advanced'] %}
+  <a href="?category={{ selected_category }}&difficulty={{ diff }}{% if request.args.get('bp_safe') %}&bp_safe=1{% endif %}"
+     class="filter-chip {% if selected_difficulty == diff %}active{% endif %}">
+    {{ diff|title if diff != 'all' else 'All Levels' }}
+  </a>
+  {% endfor %}
+  <a href="?category={{ selected_category }}&difficulty={{ selected_difficulty }}&bp_safe=1"
+     class="filter-chip {% if request.args.get('bp_safe') %}active{% endif %}">❤️ BP-Safe Only</a>
+</div>
+
+<!-- GRID -->
+{% if exercises %}
+<div class="lib-grid">
+  {% set icons = {'cardio':'🏃','strength':'💪','yoga':'🧘','flexibility':'🤸','breathing':'🫁','sports':'⚽'} %}
+  {% for ex in exercises %}
+  <div class="ex-card stagger-{{ (loop.index0 % 6) + 1 }}">
+    {% if ex.image_url %}
+    <div class="ex-img {{ ex.category }}" style="background-image:url('{{ ex.image_url }}');">
+    {% else %}
+    <div class="ex-img {{ ex.category }}">
+      <span>{{ icons.get(ex.category, '🏋️') }}</span>
+    {% endif %}
+      {% if ex.bp_safe %}<span class="bp-badge">❤️ BP Safe</span>{% endif %}
+    </div>
+    <div class="ex-body">
+      <div class="ex-name">{{ ex.name }}</div>
+      <div class="ex-meta">
+        <span class="ex-chip">{{ ex.category|title }}</span>
+        <span class="ex-chip">{{ ex.difficulty|title }}</span>
+        {% if ex.duration_mins %}<span class="ex-chip">⏱ {{ ex.duration_mins }} min</span>{% endif %}
+      </div>
+      <div class="ex-desc">{{ ex.description or 'No description available.' }}</div>
+      {% if ex.calories_per_min %}
+      <div class="ex-cal">🔥 ~{{ (ex.calories_per_min * (ex.duration_mins or 10))|round|int }} cal / session</div>
+      {% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div style="text-align:center;padding:60px;background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);">
+  <div style="font-size:50px;margin-bottom:14px;">🔍</div>
+  <div style="font-family:'Fraunces',serif;font-size:20px;font-weight:700;margin-bottom:8px;">No exercises found</div>
+  <div style="font-size:14px;color:var(--text-muted);">Try a different filter.</div>
+</div>
+{% endif %}
+{% endblock %}

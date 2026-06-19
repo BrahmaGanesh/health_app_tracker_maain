@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}{{ member.name }} | Family Health{% endblock %}
+{% block page_title %}{{ member.name }}{% endblock %}
+{% block content %}
+<style>
+.member-hero{background:linear-gradient(135deg,#142d4c,#1e3f6e,#4f3b78);border-radius:var(--radius-lg);padding:26px 30px;color:white;margin-bottom:24px;position:relative;overflow:hidden;}
+.member-hero::after{content:'{{ member.name[0].upper() }}';position:absolute;right:30px;top:50%;transform:translateY(-50%);font-size:120px;font-family:'Fraunces',serif;font-weight:900;opacity:0.08;}
+.hero-inner{display:flex;align-items:center;gap:20px;flex-wrap:wrap;position:relative;}
+.avatar{width:70px;height:70px;border-radius:20px;background:linear-gradient(135deg,var(--mint),var(--sage));display:flex;align-items:center;justify-content:center;font-size:30px;font-weight:900;font-family:'Fraunces',serif;color:var(--navy);flex-shrink:0;}
+.hero-name{font-family:'Fraunces',serif;font-size:clamp(20px,3vw,28px);font-weight:900;margin-bottom:4px;}
+.hero-meta{font-size:13px;opacity:0.75;}
+.hero-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.hero-tag{background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);border-radius:100px;padding:3px 12px;font-size:11px;font-weight:600;}
+.hero-actions{margin-left:auto;display:flex;gap:8px;position:relative;}
+.hero-btn{background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.3);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none;transition:all 0.18s;}
+.hero-btn:hover{background:rgba(255,255,255,0.25);color:white;}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+@media(max-width:900px){.stats-grid{grid-template-columns:repeat(2,1fr);}}
+.stat-card{background:var(--card-bg);border-radius:var(--radius);padding:18px;border:1px solid var(--border);box-shadow:var(--shadow-sm);animation:fadeUp 0.4s ease both;}
+.sc-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px;}
+.sc-val{font-family:'DM Mono',monospace;font-size:26px;font-weight:500;line-height:1;margin-bottom:5px;}
+.sc-sub{font-size:12px;color:var(--text-muted);}
+.main-grid{display:grid;grid-template-columns:1fr 360px;gap:22px;margin-bottom:24px;}
+@media(max-width:900px){.main-grid{grid-template-columns:1fr;}}
+.card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;animation:fadeUp 0.4s 0.1s ease both;}
+.card-hdr{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.card-title{font-family:'Fraunces',serif;font-size:16px;font-weight:700;color:var(--text-primary);}
+.card-body{padding:16px 20px;}
+.log-form{display:grid;grid-template-columns:1fr 1fr 80px;gap:10px;align-items:end;}
+@media(max-width:500px){.log-form{grid-template-columns:1fr;}}
+.fl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-muted);display:block;margin-bottom:5px;}
+.fi{width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-primary);background:var(--input-bg);outline:none;transition:border-color 0.2s;}
+.fi:focus{border-color:var(--accent);}
+.log-btn{background:linear-gradient(135deg,var(--sage),var(--mint));color:var(--navy);border:none;border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;}
+.metric-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);}
+.metric-row:last-child{border-bottom:none;}
+.metric-type{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);width:80px;flex-shrink:0;}
+.metric-val{font-family:'DM Mono',monospace;font-size:15px;font-weight:600;color:var(--text-primary);flex:1;}
+.metric-time{font-size:11px;color:var(--text-muted);}
+.med-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);}
+.med-item:last-child{border-bottom:none;}
+.no-data{padding:24px;text-align:center;color:var(--text-muted);font-size:13px;}
+</style>
+
+<div class="member-hero animate-fadeIn">
+  <div class="hero-inner">
+    <div class="avatar">{{ member.name[0].upper() }}</div>
+    <div>
+      <div class="hero-name">{{ member.name }}</div>
+      <div class="hero-meta">
+        {% if member.relation %}{{ member.relation|title }}{% endif %}
+        {% if member.age %} · {{ member.age }} years{% endif %}
+        {% if member.gender %}, {{ member.gender|title }}{% endif %}
+        {% if member.blood_group %} · {{ member.blood_group }}{% endif %}
+      </div>
+      <div class="hero-tags">
+        {% if member.bmi %}<span class="hero-tag">BMI {{ member.bmi }}</span>{% endif %}
+        {% for c in member.conditions[:3] %}<span class="hero-tag">{{ c }}</span>{% endfor %}
+      </div>
+    </div>
+    <div class="hero-actions">
+      <a href="{{ url_for('family.dashboard') }}" class="hero-btn">← Family</a>
+      <a href="{{ url_for('family.delete_member', member_id=member.id) }}"
+         class="hero-btn" style="background:rgba(239,68,68,0.2);border-color:rgba(239,68,68,0.4);"
+         onclick="return confirm('Remove {{ member.name }}?')">🗑️</a>
+    </div>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat,msg in messages %}
+<div class="alert-banner {{ cat }} animate-fadeIn"><span>{{ msg }}</span></div>
+{% endfor %}{% endif %}{% endwith %}
+
+<!-- STATS -->
+<div class="stats-grid">
+  {% set latest_bp = metrics|selectattr('metric_type','equalto','bp')|list|first if metrics else none %}
+  {% set latest_wt = metrics|selectattr('metric_type','equalto','weight')|list|first if metrics else none %}
+  <div class="stat-card" style="border-top:3px solid #ef4444;">
+    <div class="sc-lbl">❤️ Latest BP</div>
+    <div class="sc-val" style="color:#ef4444;">{% if latest_bp %}{{ latest_bp.value_1|int }}/{{ latest_bp.value_2|int }}{% else %}—{% endif %}</div>
+    <div class="sc-sub">{% if latest_bp %}{{ latest_bp.recorded_at.strftime('%d %b %I:%M %p') }}{% else %}No reading{% endif %}</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid var(--violet);">
+    <div class="sc-lbl">⚖️ Weight</div>
+    <div class="sc-val" style="color:var(--violet);">{% if member.current_weight_kg %}{{ member.current_weight_kg }}kg{% else %}—{% endif %}</div>
+    <div class="sc-sub">{% if member.bmi %}BMI {{ member.bmi }}{% else %}Not set{% endif %}</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid var(--sage);">
+    <div class="sc-lbl">📏 Height / BMI</div>
+    <div class="sc-val" style="color:var(--sage);">{% if member.height_cm %}{{ member.height_cm }}cm{% else %}—{% endif %}</div>
+    <div class="sc-sub">{% if member.bmi %}{{ member.bmi }} — Normal{% endif %}</div>
+  </div>
+  <div class="stat-card" style="border-top:3px solid #3b82f6;">
+    <div class="sc-lbl">💊 Medicines</div>
+    <div class="sc-val" style="color:#3b82f6;">{{ medicines|length }}</div>
+    <div class="sc-sub">Active medicines</div>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main-grid">
+
+  <!-- LOG READING + HISTORY -->
+  <div>
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-hdr"><div class="card-title">➕ Log Reading</div></div>
+      <div class="card-body">
+        <form method="POST" action="{{ url_for('family.log_metric', member_id=member.id) }}">
+          <div style="margin-bottom:12px;">
+            <label class="fl">Metric Type</label>
+            <select name="metric_type" class="fi" style="appearance:none;" onchange="updateFields(this.value)" id="metricType">
+              <option value="bp">Blood Pressure</option>
+              <option value="weight">Weight</option>
+              <option value="sugar">Blood Sugar</option>
+              <option value="water">Water</option>
+              <option value="steps">Steps</option>
+            </select>
+          </div>
+          <div class="log-form">
+            <div>
+              <label class="fl" id="v1Label">Systolic (mmHg)</label>
+              <input type="number" name="value_1" class="fi" placeholder="120" id="v1Input" step="0.1">
+            </div>
+            <div id="v2Wrap">
+              <label class="fl" id="v2Label">Diastolic (mmHg)</label>
+              <input type="number" name="value_2" class="fi" placeholder="80" step="0.1">
+            </div>
+            <button type="submit" class="log-btn">Save</button>
+          </div>
+          <div style="margin-top:10px;">
+            <label class="fl">Notes (optional)</label>
+            <input type="text" name="notes" class="fi" placeholder="Any notes...">
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">📋 Recent Readings</div>
+        <span style="background:var(--navy);color:white;border-radius:100px;padding:3px 12px;font-size:11px;font-weight:600;">{{ metrics|length }}</span>
+      </div>
+      <div class="card-body" style="padding:0;">
+        {% if metrics %}
+          {% for m in metrics[:15] %}
+          <div class="metric-row" style="padding:10px 20px;">
+            <span class="metric-type">{{ m.metric_type|upper }}</span>
+            <span class="metric-val">
+              {% if m.metric_type == 'bp' %}{{ m.value_1|int }}/{{ m.value_2|int }} mmHg
+              {% elif m.metric_type == 'weight' %}{{ m.value_1 }} kg
+              {% elif m.metric_type == 'sugar' %}{{ m.value_1|int }} mg/dL
+              {% elif m.metric_type == 'water' %}{{ m.value_1 }}L
+              {% elif m.metric_type == 'steps' %}{{ m.value_1|int }} steps
+              {% else %}{{ m.value_1 }}{% endif %}
+            </span>
+            <span class="metric-time">{{ m.recorded_at.strftime('%d %b %I:%M %p') }}</span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="no-data">No readings yet. Log the first reading above.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div>
+    <!-- Medicines -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-hdr"><div class="card-title">💊 Medicines</div></div>
+      <div class="card-body" style="padding:0 20px;">
+        {% if medicines %}
+          {% for med in medicines %}
+          <div class="med-item">
+            <span style="font-size:20px;">💊</span>
+            <div style="flex:1;">
+              <div style="font-size:14px;font-weight:600;color:var(--text-primary);">{{ med.name }}</div>
+              <div style="font-size:12px;color:var(--text-muted);">{{ med.dosage or '' }} · {{ med.timing or '—' }}</div>
+            </div>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="no-data">No medicines added.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <!-- BP Chart -->
+    {% if bp_chart %}
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">📈 BP Trend</div></div>
+      <div style="padding:14px;">
+        <canvas id="memberBpChart" style="max-height:200px;"></canvas>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Emergency Contact -->
+    {% if member.emergency_contact %}
+    <div class="card" style="margin-top:20px;">
+      <div class="card-hdr"><div class="card-title">🚨 Emergency Contact</div></div>
+      <div class="card-body">
+        <div style="font-size:14px;font-weight:600;color:var(--text-primary);">{{ member.emergency_contact }}</div>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const bpChart = {{ bp_chart | tojson }};
+if (bpChart.length) HealthCharts.createBpChart('memberBpChart', bpChart);
+
+function updateFields(type) {
+  const v1l = document.getElementById('v1Label');
+  const v1i = document.getElementById('v1Input');
+  const v2w = document.getElementById('v2Wrap');
+  const fields = {
+    bp:     {label:'Systolic (mmHg)', placeholder:'120', v2:true,  v2label:'Diastolic (mmHg)'},
+    weight: {label:'Weight (kg)',     placeholder:'70',  v2:false},
+    sugar:  {label:'Fasting (mg/dL)', placeholder:'95',  v2:true,  v2label:'Post-Meal (mg/dL)'},
+    water:  {label:'Amount (litres)', placeholder:'0.5', v2:false},
+    steps:  {label:'Steps',           placeholder:'8000',v2:false},
+  };
+  const f = fields[type] || fields.bp;
+  v1l.textContent = f.label;
+  v1i.placeholder = f.placeholder;
+  v2w.style.display = f.v2 ? '' : 'none';
+  if (f.v2) document.getElementById('v2Label').textContent = f.v2label;
+}
+</script>
+{% endblock %}

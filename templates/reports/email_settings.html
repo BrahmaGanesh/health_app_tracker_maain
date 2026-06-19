@@ -1,0 +1,169 @@
+{% extends "base.html" %}
+{% block title %}Email Reports | HealthTrack{% endblock %}
+{% block page_title %}Email Report Settings{% endblock %}
+{% block content %}
+<style>
+.es-hero{background:linear-gradient(135deg,#142d4c,#1e3f6e,#4f3b78);border-radius:var(--radius-lg);padding:24px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;}
+.hero-title{font-family:'Fraunces',serif;font-size:26px;font-weight:900;}
+.card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;margin-bottom:22px;}
+.card-hdr{padding:16px 22px;border-bottom:1px solid var(--border);}
+.card-title{font-family:'Fraunces',serif;font-size:17px;font-weight:700;color:var(--text-primary);}
+.card-body{padding:22px;}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);}
+.toggle-row:last-child{border-bottom:none;}
+.toggle-label{font-size:14px;font-weight:600;color:var(--text-primary);}
+.toggle-desc{font-size:12px;color:var(--text-muted);margin-top:2px;}
+.switch{position:relative;width:46px;height:26px;flex-shrink:0;}
+.switch input{opacity:0;width:0;height:0;}
+.slider{position:absolute;cursor:pointer;inset:0;background:var(--border);border-radius:100px;transition:0.3s;}
+.slider:before{content:'';position:absolute;height:20px;width:20px;left:3px;bottom:3px;background:white;border-radius:50%;transition:0.3s;}
+input:checked + .slider{background:var(--sage);}
+input:checked + .slider:before{transform:translateX(20px);}
+.form-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+@media(max-width:600px){.form-grid-2{grid-template-columns:1fr;}}
+.fg{margin-bottom:16px;}
+.fl{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:7px;}
+.fi{width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:11px 14px;font-family:'DM Sans',sans-serif;font-size:14px;color:var(--text-primary);background:var(--input-bg);outline:none;transition:border-color 0.2s;}
+.fi:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+.save-btn{background:linear-gradient(135deg,var(--sage),var(--mint));color:var(--navy);border:none;border-radius:var(--radius-sm);padding:12px 28px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:transform 0.18s,box-shadow 0.18s;}
+.save-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(97,179,144,0.35);}
+.send-now-btn{background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:white;border:none;border-radius:var(--radius-sm);padding:12px 24px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+.format-preview{background:var(--bg);border-radius:var(--radius-sm);padding:14px 16px;font-size:12px;color:var(--text-muted);line-height:1.7;font-family:'DM Mono',monospace;white-space:pre-line;}
+.log-row{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);font-size:13px;}
+.log-row:last-child{border-bottom:none;}
+</style>
+
+<div class="es-hero animate-fadeIn">
+  <div>
+    <div class="hero-title">📧 Email Report Settings</div>
+    <div style="font-size:13px;opacity:0.75;">Get automated health reports delivered to your inbox</div>
+  </div>
+  <a href="{{ url_for('reports.index') }}" style="background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.25);border-radius:var(--radius-sm);padding:9px 16px;font-size:13px;font-weight:600;text-decoration:none;">← Reports</a>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat,msg in messages %}
+<div class="alert-banner {{ cat }} animate-fadeIn"><span>{{ msg }}</span></div>
+{% endfor %}{% endif %}{% endwith %}
+
+<form method="POST" action="{{ url_for('email_reports.settings') }}">
+
+  <!-- Schedule -->
+  <div class="card animate-fadeIn">
+    <div class="card-hdr"><div class="card-title">⏰ Schedule</div></div>
+    <div class="card-body">
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">Enable Automated Reports</div>
+          <div class="toggle-desc">Receive reports automatically based on your schedule</div>
+        </div>
+        <label class="switch"><input type="checkbox" name="is_enabled" {% if config.is_enabled %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+      <div class="form-grid-2" style="margin-top:16px;">
+        <div class="fg">
+          <label class="fl">Frequency</label>
+          <select name="frequency" class="fi" style="appearance:none;" id="freqSelect">
+            <option value="daily"   {% if config.frequency == 'daily' %}selected{% endif %}>Daily</option>
+            <option value="weekly"  {% if config.frequency == 'weekly' %}selected{% endif %}>Weekly</option>
+            <option value="monthly" {% if config.frequency == 'monthly' %}selected{% endif %}>Monthly</option>
+            <option value="custom"  {% if config.frequency == 'custom' %}selected{% endif %}>Custom (Every N Days)</option>
+          </select>
+        </div>
+        <div class="fg" id="customDaysWrap" style="{% if config.frequency != 'custom' %}display:none;{% endif %}">
+          <label class="fl">Every N Days</label>
+          <input type="number" name="custom_days" class="fi" min="1" max="90" value="{{ config.custom_days or 7 }}">
+        </div>
+        <div class="fg">
+          <label class="fl">Send Time</label>
+          <input type="time" name="send_time" class="fi" value="{{ config.send_time or '08:00' }}">
+        </div>
+        <div class="fg">
+          <label class="fl">Report Period (Days of Data)</label>
+          <input type="number" name="report_period_days" class="fi" min="1" max="90" value="{{ config.report_period_days or 7 }}">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Recipients (comma-separated, leave blank for your own email)</label>
+        <input type="text" name="email_recipients" class="fi" placeholder="{{ current_user.email }}" value="{{ config.email_recipients or '' }}">
+      </div>
+    </div>
+  </div>
+
+  <!-- What to include -->
+  <div class="card animate-fadeIn" style="animation-delay:0.05s;">
+    <div class="card-hdr"><div class="card-title">📋 What to Include</div></div>
+    <div class="card-body">
+      {% for key, label, desc in [
+        ('include_weight','⚖️ Weight','Weight trend and BMI'),
+        ('include_bp','❤️ Blood Pressure','BP readings and trend'),
+        ('include_water','💧 Water Intake','Daily hydration tracking'),
+        ('include_sleep','😴 Sleep','Sleep duration and quality'),
+        ('include_steps','👟 Steps','Daily step count and distance'),
+        ('include_exercise','🏃 Exercise','Workout sessions and calories'),
+        ('include_sugar','🩺 Blood Sugar','Fasting and post-meal readings'),
+        ('include_suggestions','💡 Suggestions','Personalised health tips'),
+        ('include_achievements','🏆 Achievements','Goals and streaks earned'),
+      ] %}
+      <div class="toggle-row">
+        <div>
+          <div class="toggle-label">{{ label }}</div>
+          <div class="toggle-desc">{{ desc }}</div>
+        </div>
+        <label class="switch"><input type="checkbox" name="{{ key }}" {% if config[key] %}checked{% endif %}><span class="slider"></span></label>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:22px;">
+    <button type="submit" class="save-btn">💾 Save Settings</button>
+  </div>
+</form>
+
+<!-- Send Now -->
+<div class="card animate-fadeIn" style="animation-delay:0.1s;">
+  <div class="card-hdr"><div class="card-title">📤 Send Report Now</div></div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('email_reports.send_now') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="form-grid-2">
+        <div class="fg">
+          <label class="fl">Period</label>
+          <select name="days" class="fi" style="appearance:none;">
+            <option value="7">Last 7 days</option>
+            <option value="14">Last 14 days</option>
+            <option value="30">Last 30 days</option>
+          </select>
+        </div>
+        <div class="fg">
+          <label class="fl">Send To (optional)</label>
+          <input type="text" name="recipients" class="fi" placeholder="{{ current_user.email }}">
+        </div>
+      </div>
+      <button type="submit" class="send-now-btn">📤 Send Report Now</button>
+    </form>
+  </div>
+</div>
+
+<!-- Recent Logs -->
+{% if logs %}
+<div class="card animate-fadeIn" style="animation-delay:0.15s;">
+  <div class="card-hdr"><div class="card-title">📜 Recent Sends</div></div>
+  {% for log in logs %}
+  <div class="log-row">
+    <span>{{ '✅' if log.status == 'sent' else '❌' }}</span>
+    <span style="flex:1;">{{ log.sent_at.strftime('%d %b %Y, %I:%M %p') }} — {{ log.recipients }}</span>
+    {% if log.health_score %}<span style="font-family:'DM Mono',monospace;color:var(--sage);">{{ log.health_score|int }}/100</span>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('freqSelect').addEventListener('change', function() {
+  document.getElementById('customDaysWrap').style.display = this.value === 'custom' ? '' : 'none';
+});
+</script>
+{% endblock %}

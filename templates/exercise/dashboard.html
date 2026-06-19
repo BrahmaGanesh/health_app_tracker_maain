@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title %}Exercise | HealthTrack{% endblock %}
+{% block page_title %}Exercise Hub{% endblock %}
+{% block content %}
+<style>
+.ex-hero{background:linear-gradient(135deg,#064e3b,#065f46,#047857);border-radius:var(--radius-lg);padding:26px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;position:relative;overflow:hidden;}
+.ex-hero::after{content:'🏃';position:absolute;right:30px;top:50%;transform:translateY(-50%);font-size:100px;opacity:0.1;}
+.hero-title{font-family:'Fraunces',serif;font-size:clamp(20px,3vw,30px);font-weight:900;margin-bottom:6px;position:relative;}
+.hero-links{position:relative;display:flex;gap:8px;flex-wrap:wrap;}
+.hero-link{background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.25);border-radius:var(--radius-sm);padding:9px 16px;font-size:12px;font-weight:600;text-decoration:none;transition:all 0.15s;}
+.hero-link:hover{background:rgba(255,255,255,0.25);color:white;}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+@media(max-width:900px){.stats-grid{grid-template-columns:repeat(2,1fr);}}
+.sc{background:var(--card-bg);border-radius:var(--radius);padding:18px;border:1px solid var(--border);box-shadow:var(--shadow-sm);animation:fadeUp 0.4s ease both;}
+.sc-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px;}
+.sc-val{font-family:'DM Mono',monospace;font-size:28px;font-weight:500;line-height:1;margin-bottom:5px;}
+.sc-sub{font-size:12px;color:var(--text-muted);}
+.main-grid{display:grid;grid-template-columns:1fr 360px;gap:22px;margin-bottom:24px;}
+@media(max-width:900px){.main-grid{grid-template-columns:1fr;}}
+.card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;animation:fadeUp 0.4s ease both;}
+.card-hdr{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.card-title{font-family:'Fraunces',serif;font-size:16px;font-weight:700;color:var(--text-primary);}
+.card-body{padding:16px 20px;}
+.fl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-muted);display:block;margin-bottom:5px;}
+.fi{width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:13px;color:var(--text-primary);background:var(--input-bg);outline:none;transition:border-color 0.2s;}
+.fi:focus{border-color:var(--accent);}
+.form-g{margin-bottom:13px;}
+.save-btn{width:100%;background:linear-gradient(135deg,#047857,#10b981);color:white;border:none;border-radius:var(--radius-sm);padding:12px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:transform 0.18s,box-shadow 0.18s;}
+.save-btn:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(4,120,87,0.35);}
+.ex-log-row{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--border);}
+.ex-log-row:last-child{border-bottom:none;}
+.ex-log-icon{width:36px;height:36px;border-radius:10px;background:var(--accent-pale);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.ex-log-info{flex:1;}
+.ex-log-name{font-size:14px;font-weight:600;color:var(--text-primary);}
+.ex-log-meta{font-size:12px;color:var(--text-muted);}
+.ex-log-stats{text-align:right;flex-shrink:0;}
+.ex-log-cal{font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:#047857;}
+.del-btn{width:28px;height:28px;border-radius:7px;background:#fee2e2;color:#ef4444;border:none;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer;text-decoration:none;flex-shrink:0;}
+.tool-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:22px;}
+@media(max-width:600px){.tool-grid{grid-template-columns:1fr 1fr;}}
+.tool-card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);padding:20px;text-align:center;text-decoration:none;transition:var(--transition);animation:fadeUp 0.4s ease both;}
+.tool-card:hover{transform:translateY(-4px);box-shadow:var(--shadow);border-color:var(--accent);}
+.tool-icon{font-size:32px;display:block;margin-bottom:8px;}
+.tool-name{font-family:'Fraunces',serif;font-size:15px;font-weight:700;color:var(--text-primary);margin-bottom:3px;}
+.tool-desc{font-size:12px;color:var(--text-muted);}
+</style>
+
+<!-- HERO -->
+<div class="ex-hero animate-fadeIn">
+  <div>
+    <div class="hero-title">Exercise Hub</div>
+    <div style="font-size:14px;opacity:0.75;position:relative;">{{ today.strftime('%A, %d %B %Y') }} · {{ total_mins }} min done today</div>
+  </div>
+  <div class="hero-links">
+    <a href="{{ url_for('exercise.stopwatch') }}" class="hero-link">⏱️ Stopwatch</a>
+    <a href="{{ url_for('exercise.breathing') }}" class="hero-link">🫁 Breathing</a>
+    <a href="{{ url_for('exercise.library') }}" class="hero-link">📚 Library</a>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}{% for cat,msg in messages %}
+<div class="alert-banner {{ cat }} animate-fadeIn"><span>{{ msg }}</span></div>
+{% endfor %}{% endif %}{% endwith %}
+
+<!-- STATS -->
+<div class="stats-grid">
+  <div class="sc" style="border-top:3px solid #047857;">
+    <div class="sc-lbl">🕐 Today Mins</div>
+    <div class="sc-val" style="color:#047857;">{{ total_mins }}</div>
+    <div class="sc-sub">Target: {{ target_mins }} min</div>
+  </div>
+  <div class="sc" style="border-top:3px solid #ef4444;">
+    <div class="sc-lbl">🔥 Calories Burned</div>
+    <div class="sc-val" style="color:#ef4444;">{{ total_cal }}</div>
+    <div class="sc-sub">Today's total</div>
+  </div>
+  <div class="sc" style="border-top:3px solid #3b82f6;">
+    <div class="sc-lbl">👟 Steps Today</div>
+    <div class="sc-val" style="color:#3b82f6;">{{ steps_today.steps|default(0)|int }}</div>
+    <div class="sc-sub">{{ steps_today.distance_km|default(0) }}km · {{ steps_today.calories_burned|default(0) }}cal</div>
+  </div>
+  <div class="sc" style="border-top:3px solid var(--violet);">
+    <div class="sc-lbl">📅 Sessions Today</div>
+    <div class="sc-val" style="color:var(--violet);">{{ logs_today|length }}</div>
+    <div class="sc-sub">{% if total_mins >= target_mins %}🏆 Goal reached!{% else %}{{ target_mins - total_mins }} min more to goal{% endif %}</div>
+  </div>
+</div>
+
+<!-- TOOLS -->
+<div class="tool-grid">
+  <a href="{{ url_for('exercise.stopwatch') }}" class="tool-card stagger-1">
+    <span class="tool-icon">⏱️</span>
+    <div class="tool-name">Stopwatch & Timer</div>
+    <div class="tool-desc">Time your workout with lap tracking</div>
+  </a>
+  <a href="{{ url_for('exercise.breathing') }}" class="tool-card stagger-2">
+    <span class="tool-icon">🫁</span>
+    <div class="tool-name">4-7-8 Breathing</div>
+    <div class="tool-desc">Lower BP naturally in minutes</div>
+  </a>
+  <a href="{{ url_for('exercise.library') }}" class="tool-card stagger-3">
+    <span class="tool-icon">📚</span>
+    <div class="tool-name">Exercise Library</div>
+    <div class="tool-desc">BP-safe exercises with images</div>
+  </a>
+</div>
+
+<!-- MAIN: LOG FORM + HISTORY -->
+<div class="main-grid">
+
+  <!-- Log Form -->
+  <div class="card">
+    <div class="card-hdr"><div class="card-title">➕ Log Exercise</div></div>
+    <div class="card-body">
+      <form method="POST" action="{{ url_for('exercise.log_exercise') }}">
+        <div class="form-g">
+          <label class="fl">Exercise Name</label>
+          <input type="text" name="exercise_name" class="fi" placeholder="e.g. Morning Walk" required>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-g">
+            <label class="fl">Type</label>
+            <select name="exercise_type" class="fi" style="appearance:none;">
+              <option value="cardio">Cardio</option>
+              <option value="strength">Strength</option>
+              <option value="yoga">Yoga</option>
+              <option value="flexibility">Stretching</option>
+              <option value="sports">Sports</option>
+              <option value="breathing">Breathing</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+          <div class="form-g">
+            <label class="fl">Duration (mins)</label>
+            <input type="number" name="duration_minutes" class="fi" placeholder="30" min="1" max="300">
+          </div>
+          <div class="form-g">
+            <label class="fl">Sets (optional)</label>
+            <input type="number" name="sets" class="fi" placeholder="3" min="1">
+          </div>
+          <div class="form-g">
+            <label class="fl">Reps (optional)</label>
+            <input type="number" name="reps" class="fi" placeholder="15" min="1">
+          </div>
+        </div>
+        <div class="form-g">
+          <label class="fl">Intensity</label>
+          <select name="intensity" class="fi" style="appearance:none;">
+            <option value="low">Low — Easy walk</option>
+            <option value="moderate" selected>Moderate — Brisk walk</option>
+            <option value="high">High — Running</option>
+            <option value="very_high">Very High — HIIT</option>
+          </select>
+        </div>
+        <div class="form-g">
+          <label class="fl">Notes (optional)</label>
+          <input type="text" name="notes" class="fi" placeholder="How did it feel?">
+        </div>
+        <button type="submit" class="save-btn">🏋️ Log Exercise</button>
+      </form>
+
+      <!-- Steps Form -->
+      <div style="margin-top:18px;padding-top:18px;border-top:1px solid var(--border);">
+        <div style="font-size:13px;font-weight:700;color:var(--text-muted);margin-bottom:12px;">👟 LOG DAILY STEPS</div>
+        <form method="POST" action="{{ url_for('exercise.log_steps') }}" style="display:flex;gap:10px;align-items:end;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div style="flex:1;">
+            <label class="fl">Steps Count</label>
+            <input type="number" name="steps" class="fi" placeholder="8000" min="0" max="100000" required>
+          </div>
+          <button type="submit" style="background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:white;border:none;border-radius:var(--radius-sm);padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;flex-shrink:0;">Save Steps</button>
+        </form>
+        {% if steps_today %}
+        <div style="margin-top:10px;background:var(--accent-pale);border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;font-weight:600;color:var(--accent-dark);">
+          ✓ Today: {{ steps_today.steps|int }} steps · {{ steps_today.distance_km }}km · {{ steps_today.calories_burned }} cal
+        </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Today's Logs -->
+  <div class="card">
+    <div class="card-hdr">
+      <div class="card-title">🏅 Today's Sessions</div>
+      <span style="background:var(--navy);color:white;border-radius:100px;padding:3px 12px;font-size:11px;font-weight:600;">{{ logs_today|length }}</span>
+    </div>
+    {% if logs_today %}
+      {% set type_icons = {'cardio':'🏃','strength':'💪','yoga':'🧘','flexibility':'🤸','sports':'⚽','breathing':'🫁','other':'🏋️'} %}
+      {% for log in logs_today %}
+      <div class="ex-log-row">
+        <div class="ex-log-icon">{{ type_icons.get(log.exercise_type,'🏋️') }}</div>
+        <div class="ex-log-info">
+          <div class="ex-log-name">{{ log.exercise_name }}</div>
+          <div class="ex-log-meta">{{ log.duration_minutes or 0 }} min · {{ log.intensity|title }} · {{ log.recorded_at.strftime('%I:%M %p') }}</div>
+        </div>
+        <div class="ex-log-stats">
+          <div class="ex-log-cal">🔥 {{ log.calories_burned or 0 }}</div>
+          <div style="font-size:10px;color:var(--text-muted);">cal</div>
+        </div>
+        <a href="{{ url_for('exercise.delete_log', log_id=log.id) }}" class="del-btn" onclick="return confirm('Delete?')"><i class="bi bi-trash"></i></a>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="padding:40px;text-align:center;color:var(--text-muted);">
+        <div style="font-size:36px;margin-bottom:10px;">🏋️</div>
+        No exercise logged today. Start moving!
+      </div>
+    {% endif %}
+  </div>
+</div>
+
+<!-- WEEKLY HISTORY -->
+{% if week_logs %}
+<div class="card">
+  <div class="card-hdr"><div class="card-title">📅 This Week's Activity</div></div>
+  <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead>
+        <tr style="background:var(--bg);">
+          {% for h in ['Date','Exercise','Type','Duration','Calories','Intensity','Time'] %}
+          <th style="padding:10px 14px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-muted);border-bottom:1px solid var(--border);white-space:nowrap;">{{ h }}</th>
+          {% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in week_logs %}
+        <tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:10px 14px;font-size:13px;">{{ log.log_date.strftime('%d %b') }}</td>
+          <td style="padding:10px 14px;font-size:14px;font-weight:600;color:var(--text-primary);">{{ log.exercise_name }}</td>
+          <td style="padding:10px 14px;font-size:12px;color:var(--text-muted);">{{ log.exercise_type|title }}</td>
+          <td style="padding:10px 14px;font-family:'DM Mono',monospace;font-size:13px;">{{ log.duration_minutes or '—' }} min</td>
+          <td style="padding:10px 14px;font-family:'DM Mono',monospace;font-size:13px;color:#047857;">{{ log.calories_burned or '—' }}</td>
+          <td style="padding:10px 14px;font-size:12px;">{{ log.intensity|title }}</td>
+          <td style="padding:10px 14px;font-size:12px;color:var(--text-muted);">{{ log.recorded_at.strftime('%I:%M %p') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

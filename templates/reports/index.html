@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}Reports | HealthTrack{% endblock %}
+{% block page_title %}Reports{% endblock %}
+{% block content %}
+<style>
+.rep-hero{background:linear-gradient(135deg,#142d4c,#1e3f6e,#4f3b78);border-radius:var(--radius-lg);padding:26px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;position:relative;overflow:hidden;}
+.rep-hero::after{content:'📊';position:absolute;right:30px;top:50%;transform:translateY(-50%);font-size:100px;opacity:0.1;}
+.hero-title{font-family:'Fraunces',serif;font-size:clamp(20px,3vw,30px);font-weight:900;margin-bottom:6px;position:relative;}
+.export-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:24px;}
+@media(max-width:768px){.export-grid{grid-template-columns:1fr;}}
+.export-card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);padding:24px;text-align:center;animation:fadeUp 0.4s ease both;}
+.export-icon{font-size:42px;margin-bottom:12px;}
+.export-title{font-family:'Fraunces',serif;font-size:17px;font-weight:700;color:var(--text-primary);margin-bottom:6px;}
+.export-desc{font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.5;}
+.period-select{width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:13px;background:var(--input-bg);margin-bottom:12px;appearance:none;}
+.export-btn{display:block;width:100%;border:none;border-radius:var(--radius-sm);padding:11px;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;transition:transform 0.18s,box-shadow 0.18s;}
+.export-btn.pdf{background:linear-gradient(135deg,#dc2626,#ef4444);color:white;}
+.export-btn.excel{background:linear-gradient(135deg,#047857,#10b981);color:white;}
+.export-btn.csv{background:linear-gradient(135deg,#1d4ed8,#3b82f6);color:white;}
+.export-btn:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,0.15);}
+.card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;}
+.card-hdr{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.card-title{font-family:'Fraunces',serif;font-size:16px;font-weight:700;color:var(--text-primary);}
+.log-row{display:flex;align-items:center;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border);}
+.log-row:last-child{border-bottom:none;}
+.log-icon{width:36px;height:36px;border-radius:10px;background:var(--accent-pale);display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.log-info{flex:1;}
+.log-period{font-size:13px;font-weight:600;color:var(--text-primary);}
+.log-meta{font-size:11px;color:var(--text-muted);}
+.status-chip{border-radius:100px;padding:3px 10px;font-size:10px;font-weight:700;}
+.status-sent{background:#dcfce7;color:#166534;}
+.status-failed{background:#fee2e2;color:#991b1b;}
+.cta-card{background:linear-gradient(135deg,var(--navy),var(--violet));color:white;border-radius:var(--radius);padding:22px 26px;margin-bottom:22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;}
+</style>
+
+<div class="rep-hero animate-fadeIn">
+  <div>
+    <div class="hero-title">📊 Reports</div>
+    <div style="font-size:13px;opacity:0.75;position:relative;">Download or email your health reports in PDF, Excel, or CSV format.</div>
+  </div>
+</div>
+
+<div class="cta-card animate-fadeIn">
+  <div>
+    <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin-bottom:4px;">📧 Automated Email Reports</div>
+    <div style="font-size:13px;opacity:0.8;">Get your health report sent automatically — daily, weekly, or monthly.</div>
+  </div>
+  <a href="{{ url_for('email_reports.settings') }}" style="background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.3);border-radius:var(--radius-sm);padding:10px 20px;font-size:13px;font-weight:700;text-decoration:none;">⚙️ Configure</a>
+</div>
+
+<!-- EXPORT OPTIONS -->
+<div class="export-grid">
+  <div class="export-card stagger-1">
+    <div class="export-icon">📄</div>
+    <div class="export-title">PDF Report</div>
+    <div class="export-desc">Full health report with charts, achievements, and suggestions — same format as email.</div>
+    <select class="period-select" id="pdfPeriod">
+      <option value="7">Last 7 days</option>
+      <option value="14">Last 14 days</option>
+      <option value="30">Last 30 days</option>
+    </select>
+    <a href="#" class="export-btn pdf" onclick="downloadReport('pdf')">⬇ Download PDF</a>
+  </div>
+  <div class="export-card stagger-2">
+    <div class="export-icon">📊</div>
+    <div class="export-title">Excel Report</div>
+    <div class="export-desc">Spreadsheet with day-by-day data, achievements, and suggestions across 3 sheets.</div>
+    <select class="period-select" id="excelPeriod">
+      <option value="7">Last 7 days</option>
+      <option value="14">Last 14 days</option>
+      <option value="30">Last 30 days</option>
+    </select>
+    <a href="#" class="export-btn excel" onclick="downloadReport('excel')">⬇ Download Excel</a>
+  </div>
+  <div class="export-card stagger-3">
+    <div class="export-icon">📋</div>
+    <div class="export-title">CSV Export</div>
+    <div class="export-desc">Raw data export for importing into other tools or spreadsheets.</div>
+    <select class="period-select" id="csvPeriod">
+      <option value="7">Last 7 days</option>
+      <option value="14">Last 14 days</option>
+      <option value="30">Last 30 days</option>
+    </select>
+    <a href="#" class="export-btn csv" onclick="downloadReport('csv')">⬇ Download CSV</a>
+  </div>
+</div>
+
+<!-- RECENT EMAIL REPORTS -->
+<div class="card">
+  <div class="card-hdr">
+    <div class="card-title">📧 Recent Email Reports</div>
+    {% if config %}
+    <span class="status-chip {{ 'status-sent' if config.is_enabled else '' }}" style="background:{% if config.is_enabled %}#dcfce7{% else %}var(--bg){% endif %};color:{% if config.is_enabled %}#166534{% else %}var(--text-muted){% endif %};">
+      {{ '🟢 Auto-send enabled' if config.is_enabled else '⚪ Auto-send disabled' }}
+    </span>
+    {% endif %}
+  </div>
+  {% if logs %}
+    {% for log in logs %}
+    <div class="log-row">
+      <div class="log-icon">📧</div>
+      <div class="log-info">
+        <div class="log-period">{{ log.period_start.strftime('%d %b') if log.period_start else '' }} – {{ log.period_end.strftime('%d %b %Y') if log.period_end else '' }}</div>
+        <div class="log-meta">Sent {{ log.sent_at.strftime('%d %b %Y, %I:%M %p') }} to {{ log.recipients or 'you' }}</div>
+      </div>
+      {% if log.health_score %}
+      <span style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--sage);">{{ log.health_score|int }}/100</span>
+      {% endif %}
+      <span class="status-chip {{ 'status-sent' if log.status == 'sent' else 'status-failed' }}">{{ log.status|title }}</span>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div style="padding:30px;text-align:center;color:var(--text-muted);">
+    <div style="font-size:36px;margin-bottom:10px;">📧</div>
+    No email reports sent yet. <a href="{{ url_for('email_reports.settings') }}" style="color:var(--accent);font-weight:600;">Configure email reports →</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function downloadReport(type) {
+  const days = document.getElementById(type+'Period').value;
+  window.location.href = `/reports/${type}?days=${days}`;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Statistics | Admin{% endblock %}
+{% block page_title %}Platform Statistics{% endblock %}
+{% block content %}
+<style>
+.admin-hero{background:linear-gradient(135deg,#0d1b2e,#142d4c,#4f3b78);border-radius:var(--radius-lg);padding:24px 30px;color:white;margin-bottom:24px;}
+.hero-title{font-family:'Fraunces',serif;font-size:26px;font-weight:900;}
+.nav-tabs{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;}
+.nav-tab{background:var(--card-bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:9px 18px;font-size:13px;font-weight:600;color:var(--text-muted);text-decoration:none;transition:all 0.18s;}
+.nav-tab.active{background:var(--navy);color:white;border-color:var(--navy);}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+@media(max-width:768px){.stats-grid{grid-template-columns:repeat(2,1fr);}}
+.sc{background:var(--card-bg);border-radius:var(--radius);padding:20px;border:1px solid var(--border);box-shadow:var(--shadow-sm);animation:fadeUp 0.4s ease both;}
+.sc-lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-muted);margin-bottom:8px;}
+.sc-val{font-family:'DM Mono',monospace;font-size:28px;font-weight:500;}
+.card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;}
+.card-hdr{padding:14px 20px;border-bottom:1px solid var(--border);}
+.card-title{font-family:'Fraunces',serif;font-size:16px;font-weight:700;color:var(--text-primary);}
+.metric-row{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--border);}
+.metric-row:last-child{border-bottom:none;}
+.metric-bar-bg{flex:1;height:8px;background:var(--border);border-radius:100px;overflow:hidden;margin:0 16px;}
+.metric-bar-fill{height:100%;background:linear-gradient(90deg,var(--sage),var(--mint));border-radius:100px;}
+</style>
+
+<div class="admin-hero animate-fadeIn"><div class="hero-title">📈 Platform Statistics</div></div>
+
+<div class="nav-tabs">
+  <a href="{{ url_for('admin.dashboard') }}" class="nav-tab">📊 Dashboard</a>
+  <a href="{{ url_for('admin.users') }}" class="nav-tab">👥 Users</a>
+  <a href="{{ url_for('admin.stats') }}" class="nav-tab active">📈 Stats</a>
+  <a href="{{ url_for('admin.logs') }}" class="nav-tab">📜 Logs</a>
+</div>
+
+<div class="stats-grid">
+  <div class="sc" style="border-top:3px solid var(--sage);"><div class="sc-lbl">Daily Active Users</div><div class="sc-val" style="color:var(--sage);">{{ dau }}</div></div>
+  <div class="sc" style="border-top:3px solid #3b82f6;"><div class="sc-lbl">Weekly Active Users</div><div class="sc-val" style="color:#3b82f6;">{{ wau }}</div></div>
+  <div class="sc" style="border-top:3px solid var(--violet);"><div class="sc-lbl">Total Alerts</div><div class="sc-val" style="color:var(--violet);">{{ total_alerts }}</div></div>
+  <div class="sc" style="border-top:3px solid #f59e0b;"><div class="sc-lbl">Documents Stored</div><div class="sc-val" style="color:#f59e0b;">{{ total_docs }}</div></div>
+</div>
+
+<div class="card" style="margin-bottom:22px;">
+  <div class="card-hdr"><div class="card-title">📊 Health Metrics Logged (All-Time)</div></div>
+  {% set max_val = metrics_data.values()|max if metrics_data else 1 %}
+  {% set type_labels = {'bp':'❤️ Blood Pressure','weight':'⚖️ Weight','water':'💧 Water','sugar':'🩺 Blood Sugar','steps':'👟 Steps','sleep':'😴 Sleep'} %}
+  {% for mtype, count in metrics_data.items() %}
+  <div class="metric-row">
+    <span style="width:160px;font-size:13px;font-weight:600;">{{ type_labels.get(mtype, mtype|title) }}</span>
+    <div class="metric-bar-bg"><div class="metric-bar-fill" style="width:{{ (count/max_val*100)|round|int }}%;"></div></div>
+    <span style="font-family:'DM Mono',monospace;font-size:14px;font-weight:600;width:60px;text-align:right;">{{ count }}</span>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card">
+  <div class="card-hdr"><div class="card-title">📧 Email Reports Sent</div></div>
+  <div style="padding:20px;text-align:center;">
+    <div style="font-family:'DM Mono',monospace;font-size:36px;font-weight:500;color:var(--navy);">{{ total_reports }}</div>
+    <div style="font-size:13px;color:var(--text-muted);">Total reports sent across all users</div>
+  </div>
+</div>
+{% endblock %}
