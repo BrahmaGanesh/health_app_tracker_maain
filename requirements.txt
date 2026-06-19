@@ -2,6 +2,7 @@ flask
 gunicorn
 requests
 flask-cors
+flask_sqlalchemy
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
