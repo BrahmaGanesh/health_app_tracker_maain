@@ -9,7 +9,7 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
-from sqlalchemy import func
+from sqlalchemy import func, extract
 
 from extensions import db
 from models import HealthMetric, Alert
@@ -108,7 +108,7 @@ def tracker():
         HealthMetric.user_id == user.id,
         HealthMetric.metric_type == "bp",
         func.date(HealthMetric.recorded_at) == today,
-        func.strftime('%H', HealthMetric.recorded_at) >= '15'
+        extract('hour', HealthMetric.recorded_at) >= 15
     ).order_by(HealthMetric.recorded_at.desc()).first()
 
     evening_bp_str = (

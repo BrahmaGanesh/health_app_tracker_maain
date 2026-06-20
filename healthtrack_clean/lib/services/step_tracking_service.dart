@@ -90,9 +90,25 @@ class StepTrackingService extends ChangeNotifier {
       return;
     }
 
-    _stepSub = Pedometer.stepCountStream.listen(_onStep);
-    _statusSub = Pedometer.pedestrianStatusStream.listen(_onStatus, onError: _onError);
+    _stepSub = Pedometer.stepCountStream.listen(
+      (event) {
+        print("STEP: ${event.steps}");
+        _onStep(event);
+      },
+      onError: (e) {
+        print("STEP ERROR: $e");
+      },
+    );
 
+    _statusSub = Pedometer.pedestrianStatusStream.listen(
+      (event) {
+        print("STATUS: ${event.status}");
+        _onStatus(event);
+      },
+      onError: (e) {
+        print("STATUS ERROR: $e");
+      },
+    );
     _isTracking = true;
     _status = 'tracking';
 

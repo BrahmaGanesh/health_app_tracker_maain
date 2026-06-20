@@ -3,10 +3,30 @@
 # models.py — All Database Models (Website + APK Shared)
 # ============================================================
 
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 from flask_login import UserMixin
 from extensions import db, bcrypt
 import json
+
+# ============================================================
+# LIVE TIME (IST) — replaces datetime.utcnow()/date.today()
+# ============================================================
+# datetime.utcnow() stores server UTC time, which sits ~5:30 hrs
+# behind real Indian time. Every "created_at" / "updated_at" /
+# "recorded_at" / "logged_at" column below now uses these helpers
+# instead, so every record always reflects the actual live date
+# and time at the moment it is created or updated — regardless of
+# what timezone the hosting server itself is set to.
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def now_ist():
+    """Current live datetime (timezone-aware, IST)."""
+    return datetime.now(IST)
+
+def today_ist():
+    """Current live date (IST)."""
+    return now_ist().date()
 
 
 # ============================================================
@@ -46,9 +66,9 @@ class User(UserMixin, db.Model):
     auth_provider       = db.Column(db.String(20), default="email")
     # "email" | "google"
 
-    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at          = db.Column(db.DateTime, default=now_ist)
     last_login          = db.Column(db.DateTime, nullable=True)
-    last_updated        = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_updated        = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
 
     # ── Relationships ─────────────────────────────────────────
     health_profile      = db.relationship("UserHealthProfile",  backref="user", uselist=False,  cascade="all, delete-orphan")
@@ -103,7 +123,7 @@ class User(UserMixin, db.Model):
     @property
     def age(self):
         if not self.health_profile or not self.health_profile.date_of_birth: return None
-        t = date.today()
+        t = today_ist()
         d = self.health_profile.date_of_birth
         return t.year - d.year - ((t.month, t.day) < (d.month, d.day))
 
@@ -179,8 +199,8 @@ class UserHealthProfile(db.Model):
     onboarding_step     = db.Column(db.Integer, default=1)
     blood_group         = db.Column(db.String(10), nullable=True)
     emergency_contact   = db.Column(db.String(200), nullable=True)
-    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at          = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at          = db.Column(db.DateTime, default=now_ist)
+    updated_at          = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
 
     def to_dict(self):
         return {
@@ -213,7 +233,7 @@ class UserCondition(db.Model):
     severity        = db.Column(db.String(20), default="moderate")
     diagnosed_at    = db.Column(db.Date, nullable=True)
     notes           = db.Column(db.Text, nullable=True)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at      = db.Column(db.DateTime, default=now_ist)
     __table_args__  = (db.UniqueConstraint("user_id", "condition_id"),)
 
 
@@ -234,10 +254,10 @@ class UserGoal(db.Model):
     target_bp_diastolic     = db.Column(db.Integer, default=80)
     target_fasting_sugar    = db.Column(db.Float, nullable=True)
     primary_goal            = db.Column(db.String(50), default="healthy_lifestyle")
-    goal_start_date         = db.Column(db.Date, default=date.today)
+    goal_start_date         = db.Column(db.Date, default=today_ist)
     goal_review_date        = db.Column(db.Date, nullable=True)
-    created_at              = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at              = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at              = db.Column(db.DateTime, default=now_ist)
+    updated_at              = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
 
     def to_dict(self):
         return {
@@ -271,7 +291,7 @@ class HealthMetric(db.Model):
     source      = db.Column(db.String(20), default="manual")
     notes       = db.Column(db.Text, nullable=True)
     # EXACT timestamp when user submitted — used for smart time tracking
-    recorded_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    recorded_at = db.Column(db.DateTime, default=now_ist, index=True)
 
     @property
     def bp_status(self):
@@ -302,7 +322,7 @@ class SleepLog(db.Model):
     __tablename__ = "sleep_logs"
     id              = db.Column(db.Integer, primary_key=True)
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    log_date        = db.Column(db.Date, default=date.today, index=True)
+    log_date        = db.Column(db.Date, default=today_ist, index=True)
     sleep_time      = db.Column(db.String(10), nullable=True)   # "22:30"
     wake_time       = db.Column(db.String(10), nullable=True)   # "06:00"
     duration_hours  = db.Column(db.Float, nullable=True)
@@ -311,7 +331,7 @@ class SleepLog(db.Model):
     interruptions   = db.Column(db.Integer, default=0)
     mood_on_wake    = db.Column(db.String(20), nullable=True)
     notes           = db.Column(db.Text, nullable=True)
-    recorded_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    recorded_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
     __table_args__  = (db.UniqueConstraint("user_id", "log_date"),)
 
     @property
@@ -336,7 +356,7 @@ class ExerciseLog(db.Model):
     __tablename__ = "exercise_logs"
     id                  = db.Column(db.Integer, primary_key=True)
     user_id             = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    log_date            = db.Column(db.Date, default=date.today, index=True)
+    log_date            = db.Column(db.Date, default=today_ist, index=True)
     exercise_name       = db.Column(db.String(200), nullable=False)
     exercise_type       = db.Column(db.String(30), nullable=True)
     # cardio / strength / flexibility / yoga / sports / breathing / other
@@ -349,7 +369,7 @@ class ExerciseLog(db.Model):
     avg_heart_rate      = db.Column(db.Integer, nullable=True)
     intensity           = db.Column(db.String(20), default="moderate")
     notes               = db.Column(db.Text, nullable=True)
-    recorded_at         = db.Column(db.DateTime, default=datetime.utcnow)
+    recorded_at         = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
 
     def to_dict(self):
         return {
@@ -365,13 +385,13 @@ class StepLog(db.Model):
     __tablename__ = "step_logs"
     id              = db.Column(db.Integer, primary_key=True)
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    log_date        = db.Column(db.Date, default=date.today, index=True)
+    log_date        = db.Column(db.Date, default=today_ist, index=True)
     steps           = db.Column(db.Integer, default=0)
     distance_km     = db.Column(db.Float, nullable=True)
     calories_burned = db.Column(db.Integer, nullable=True)
     goal_steps      = db.Column(db.Integer, default=8000)
     goal_achieved   = db.Column(db.Boolean, default=False)
-    recorded_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    recorded_at     = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
     __table_args__  = (db.UniqueConstraint("user_id", "log_date"),)
 
     def compute_calories(self, weight_kg=70):
@@ -397,9 +417,9 @@ class HeartRateLog(db.Model):
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     bpm             = db.Column(db.Integer, nullable=False)
     reading_type    = db.Column(db.String(20), default="resting")
-    log_date        = db.Column(db.Date, default=date.today)
+    log_date        = db.Column(db.Date, default=today_ist)
     notes           = db.Column(db.Text, nullable=True)
-    recorded_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    recorded_at     = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
 
     def to_dict(self):
         return {"id": self.id, "bpm": self.bpm, "reading_type": self.reading_type,
@@ -412,14 +432,15 @@ class HabitLog(db.Model):
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     habit_name      = db.Column(db.String(100), nullable=False)
     category        = db.Column(db.String(40), nullable=True)
-    log_date        = db.Column(db.Date, default=date.today, index=True)
+    log_date        = db.Column(db.Date, default=today_ist, index=True)
     completed       = db.Column(db.Boolean, default=False)
     streak          = db.Column(db.Integer, default=0)
     target_value    = db.Column(db.Float, nullable=True)
     actual_value    = db.Column(db.Float, nullable=True)
     unit            = db.Column(db.String(20), nullable=True)
     notes           = db.Column(db.Text, nullable=True)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
+
 
 
 # ============================================================
@@ -445,7 +466,7 @@ class ExerciseLibrary(db.Model):
     beginner_safe   = db.Column(db.Boolean, default=True)
     equipment       = db.Column(db.String(100), nullable=True)
     is_featured     = db.Column(db.Boolean, default=False)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at      = db.Column(db.DateTime, default=now_ist)
 
     def to_dict(self):
         return {
@@ -484,7 +505,7 @@ class FamilyMember(db.Model):
     emergency_contact   = db.Column(db.String(200), nullable=True)
     notes               = db.Column(db.Text, nullable=True)
     is_active           = db.Column(db.Boolean, default=True)
-    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at          = db.Column(db.DateTime, default=now_ist)
     health_metrics      = db.relationship("FamilyHealthMetric", backref="member", cascade="all, delete-orphan", lazy="dynamic")
     medicines           = db.relationship("FamilyMedicine",     backref="member", cascade="all, delete-orphan")
     documents           = db.relationship("FamilyDocument",     backref="member", cascade="all, delete-orphan", lazy="dynamic")
@@ -497,7 +518,7 @@ class FamilyMember(db.Model):
     @property
     def age(self):
         if not self.date_of_birth: return None
-        t = date.today()
+        t = today_ist()
         return t.year - self.date_of_birth.year - ((t.month, t.day) < (self.date_of_birth.month, self.date_of_birth.day))
 
     @property
@@ -525,7 +546,7 @@ class FamilyHealthMetric(db.Model):
     value_3     = db.Column(db.Float, nullable=True)
     unit        = db.Column(db.String(20), nullable=True)
     notes       = db.Column(db.Text, nullable=True)
-    recorded_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    recorded_at = db.Column(db.DateTime, default=now_ist, index=True)
 
     def to_dict(self):
         return {
@@ -545,7 +566,7 @@ class FamilyMedicine(db.Model):
     timing      = db.Column(db.String(20), nullable=True)
     frequency   = db.Column(db.String(30), default="daily")
     active      = db.Column(db.Boolean, default=True)
-    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at  = db.Column(db.DateTime, default=now_ist)
 
 
 class FamilyDocument(db.Model):
@@ -555,7 +576,7 @@ class FamilyDocument(db.Model):
     title       = db.Column(db.String(200), nullable=False)
     doc_type    = db.Column(db.String(50), nullable=True)
     file_path   = db.Column(db.String(500), nullable=True)
-    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_at = db.Column(db.DateTime, default=now_ist)
 
 
 # ============================================================
@@ -602,12 +623,12 @@ class Reminder(db.Model):
     done_reset_date     = db.Column(db.Date, nullable=True)
     repeat_count_today  = db.Column(db.Integer, default=0)
 
-    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at          = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
+    updated_at          = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
 
     def reset_daily(self):
         """Reset done status each new day."""
-        today = date.today()
+        today = today_ist()
         if self.done_reset_date != today:
             self.is_done_today      = False
             self.repeat_count_today = 0
@@ -645,7 +666,7 @@ class Notification(db.Model):
     # inapp / fcm / webpush / email / all
     reminder_id     = db.Column(db.Integer, db.ForeignKey("reminders.id"), nullable=True)
     scheduled_for   = db.Column(db.DateTime, nullable=True)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at      = db.Column(db.DateTime, default=now_ist, index=True)
 
     def to_dict(self):
         return {
@@ -697,7 +718,7 @@ class Recipe(db.Model):
     diabetes_score          = db.Column(db.Float, default=0.0)
     weight_loss_score       = db.Column(db.Float, default=0.0)
     nutrition_score         = db.Column(db.Float, default=0.0)
-    created_at              = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at              = db.Column(db.DateTime, default=now_ist)
     favorites               = db.relationship("Favorite",  backref="recipe", cascade="all, delete-orphan")
     meal_items              = db.relationship("MealItem",  backref="recipe")
 
@@ -731,7 +752,7 @@ class Favorite(db.Model):
     id          = db.Column(db.Integer, primary_key=True)
     user_id     = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     recipe_id   = db.Column(db.Integer, db.ForeignKey("recipes.id"), nullable=False)
-    saved_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    saved_at    = db.Column(db.DateTime, default=now_ist)
     __table_args__ = (db.UniqueConstraint("user_id", "recipe_id"),)
 
 
@@ -740,7 +761,7 @@ class MealPlan(db.Model):
     id              = db.Column(db.Integer, primary_key=True)
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     week_start_date = db.Column(db.Date, nullable=False)
-    generated_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    generated_at    = db.Column(db.DateTime, default=now_ist)
     is_active       = db.Column(db.Boolean, default=True)
     notes           = db.Column(db.Text, nullable=True)
     items           = db.relationship("MealItem", backref="meal_plan", cascade="all, delete-orphan")
@@ -758,7 +779,7 @@ class MealItem(db.Model):
     completed_at    = db.Column(db.DateTime, nullable=True)
     locked          = db.Column(db.Boolean, default=False)
     note            = db.Column(db.Text, nullable=True)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at      = db.Column(db.DateTime, default=now_ist)
 
 
 class GroceryItem(db.Model):
@@ -771,7 +792,7 @@ class GroceryItem(db.Model):
     quantity        = db.Column(db.String(50), nullable=True)
     purchased       = db.Column(db.Boolean, default=False)
     purchased_at    = db.Column(db.DateTime, nullable=True)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at      = db.Column(db.DateTime, default=now_ist)
 
 
 # ============================================================
@@ -794,8 +815,8 @@ class NutritionDailyLog(db.Model):
     meals_completed = db.Column(db.Integer, default=0)
     meals_planned   = db.Column(db.Integer, default=5)
     health_score    = db.Column(db.Float, default=0)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at      = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at      = db.Column(db.DateTime, default=now_ist)
+    updated_at      = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
     __table_args__  = (db.UniqueConstraint("user_id", "log_date"),)
 
     def to_dict(self):
@@ -825,7 +846,7 @@ class Alert(db.Model):
     trigger_value   = db.Column(db.Float, nullable=True)
     is_read         = db.Column(db.Boolean, default=False)
     is_dismissed    = db.Column(db.Boolean, default=False)
-    created_at      = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at      = db.Column(db.DateTime, default=now_ist, index=True)
     expires_at      = db.Column(db.DateTime, nullable=True)
 
     def to_dict(self):
@@ -852,9 +873,9 @@ class Medicine(db.Model):
     with_food   = db.Column(db.String(20), default="doesn't_matter")
     condition   = db.Column(db.String(100), nullable=True)
     active      = db.Column(db.Boolean, default=True)
-    start_date  = db.Column(db.Date, default=date.today)
+    start_date  = db.Column(db.Date, default=today_ist)
     notes       = db.Column(db.Text, nullable=True)
-    created_at  = db.Column(db.DateTime, default=datetime.utcnow)
+    created_at  = db.Column(db.DateTime, default=now_ist)
     logs        = db.relationship("MedicineLog", backref="medicine", cascade="all, delete-orphan")
 
     def to_dict(self):
@@ -872,8 +893,8 @@ class MedicineLog(db.Model):
     medicine_id = db.Column(db.Integer, db.ForeignKey("medicines.id"), nullable=False)
     user_id     = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     taken       = db.Column(db.Boolean, default=False)
-    log_date    = db.Column(db.Date, default=date.today, index=True)
-    logged_at   = db.Column(db.DateTime, default=datetime.utcnow)
+    log_date    = db.Column(db.Date, default=today_ist, index=True)
+    logged_at   = db.Column(db.DateTime, default=now_ist)
     notes       = db.Column(db.Text, nullable=True)
     __table_args__ = (db.UniqueConstraint("medicine_id", "log_date"),)
 
@@ -900,7 +921,7 @@ class Document(db.Model):
     tags            = db.Column(db.Text, nullable=True)
     notes           = db.Column(db.Text, nullable=True)
     is_important    = db.Column(db.Boolean, default=False)
-    uploaded_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    uploaded_at     = db.Column(db.DateTime, default=now_ist)
 
     @property
     def type_icon(self):
@@ -945,8 +966,8 @@ class EmailReportConfig(db.Model):
     last_sent_at        = db.Column(db.DateTime, nullable=True)
     next_send_at        = db.Column(db.DateTime, nullable=True)
     total_sent          = db.Column(db.Integer, default=0)
-    created_at          = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at          = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at          = db.Column(db.DateTime, default=now_ist)
+    updated_at          = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
 
     @property
     def recipient_list(self):
@@ -958,7 +979,7 @@ class EmailReportLog(db.Model):
     __tablename__ = "email_report_logs"
     id              = db.Column(db.Integer, primary_key=True)
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    sent_at         = db.Column(db.DateTime, default=datetime.utcnow)
+    sent_at         = db.Column(db.DateTime, default=now_ist)
     recipients      = db.Column(db.Text, nullable=True)
     period_start    = db.Column(db.Date, nullable=True)
     period_end      = db.Column(db.Date, nullable=True)
@@ -986,7 +1007,7 @@ class DailyHealthScore(db.Model):
     medicine_score  = db.Column(db.Float, default=0)
     total_score     = db.Column(db.Float, default=0)
     grade           = db.Column(db.String(20), nullable=True)
-    computed_at     = db.Column(db.DateTime, default=datetime.utcnow)
+    computed_at     = db.Column(db.DateTime, default=now_ist)
     __table_args__  = (db.UniqueConstraint("user_id", "score_date"),)
 
     @property
@@ -1023,7 +1044,7 @@ class Backup(db.Model):
     file_size_kb= db.Column(db.Integer, nullable=True)
     format      = db.Column(db.String(20), default="json")
     status      = db.Column(db.String(20), default="completed")
-    created_at  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at  = db.Column(db.DateTime, default=now_ist, index=True)
 
 
 class AdminLog(db.Model):
@@ -1035,7 +1056,7 @@ class AdminLog(db.Model):
     target_id   = db.Column(db.Integer, nullable=True)
     details     = db.Column(db.Text, nullable=True)
     ip_address  = db.Column(db.String(50), nullable=True)
-    created_at  = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+    created_at  = db.Column(db.DateTime, default=now_ist, index=True)
 
 
 class WeeklyInsight(db.Model):
@@ -1049,7 +1070,7 @@ class WeeklyInsight(db.Model):
     direction       = db.Column(db.String(20), nullable=True)
     priority        = db.Column(db.Integer, default=3)
     icon            = db.Column(db.String(10), default="📊")
-    generated_at    = db.Column(db.DateTime, default=datetime.utcnow)
+    generated_at    = db.Column(db.DateTime, default=now_ist)
 
 
 # ============================================================

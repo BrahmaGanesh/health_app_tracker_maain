@@ -17,35 +17,3 @@ for folder, size in sizes.items():
     img.save(f"{path}/ic_notification.png")
 
 print("Notification icons created")
-PYEOF
-
-# Also create the color resource
-mkdir -p /mnt/user-data/outputs/flutter_app/android/app/src/main/res/values
-cat > /mnt/user-data/outputs/flutter_app/android/app/src/main/res/values/colors.xml << 'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- HealthTrack Navy — used as FCM notification accent color -->
-    <color name="notification_color">#142D4C</color>
-</resources>
-EOF
-
-# Styles required for Flutter launch theme
-cat > /mnt/user-data/outputs/flutter_app/android/app/src/main/res/values/styles.xml << 'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <style name="LaunchTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">@drawable/launch_background</item>
-    </style>
-    <style name="NormalTheme" parent="@android:style/Theme.Black.NoTitleBar">
-        <item name="android:windowBackground">?android:colorBackground</item>
-    </style>
-</resources>
-EOF
-
-# Launch background
-mkdir -p /mnt/user-data/outputs/flutter_app/android/app/src/main/res/drawable
-cat > /mnt/user-data/outputs/flutter_app/android/app/src/main/res/drawable/launch_background.xml << 'EOF'
-<?xml version="1.0" encoding="utf-8"?>
-<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
-    <item><color android:color="#142D4C"/></item>
-</layer-list>

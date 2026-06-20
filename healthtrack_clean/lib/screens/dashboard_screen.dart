@@ -60,7 +60,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   children: [
                     _buildHeader(auth),
                     const SizedBox(height: 16),
-                    if (_data?['alert_count'] != null && _data!['alert_count'] > 0) _buildAlerts(),
+                    if (_data?['alert_count'] != null && _data!['alert_count'] > 0)
+                      _buildAlerts(),
                     const SizedBox(height: 16),
                     _buildStatsGrid(),
                     const SizedBox(height: 16),
@@ -106,27 +107,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget _buildAlerts() {
     final alerts = _data!['alerts'] as List;
     if (alerts.isEmpty) return const SizedBox.shrink();
+
     final first = alerts.first;
     final isEmergency = first['alert_type'] == 'emergency';
+
+    final bgColor = isEmergency
+        ? const Color(0xFFFDECEC)
+        : const Color(0xFFFFF4D6);
+
+    final borderColor = isEmergency
+        ? const Color(0xFFE58A8A)
+        : const Color(0xFFE8C15A);
+
+    final titleColor = isEmergency
+        ? const Color(0xFF8B1E1E)
+        : const Color(0xFF7A4B00);
+
+    const messageColor = Color(0xFF2F2F2F);
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: isEmergency ? const Color(0xFFFEE2E2) : const Color(0xFFFEF3C7),
+        color: bgColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: isEmergency ? const Color(0xFFFCA5A5) : const Color(0xFFFDE68A)),
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Row(
         children: [
-          Text(isEmergency ? '🚨' : '⚠️', style: const TextStyle(fontSize: 24)),
+          Text(
+            isEmergency ? '🚨' : '⚠️',
+            style: const TextStyle(fontSize: 24),
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(first['title'], style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isEmergency ? const Color(0xFF991B1B) : const Color(0xFF92400E))),
-                const SizedBox(height: 2),
-                Text(first['message'], style: const TextStyle(fontSize: 12, color: AppColors.textMuted), maxLines: 2, overflow: TextOverflow.ellipsis),
+                Text(
+                  first['title'] ?? '',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 14,
+                    color: titleColor,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  first['message'] ?? '',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: messageColor,
+                    height: 1.35,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
               ],
             ),
           ),
@@ -143,7 +185,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final steps = _data?['steps'];
 
     final bpLatest = bp?['latest'];
-    final bpStr = bpLatest != null ? '${bpLatest['value_1']?.toInt()}/${bpLatest['value_2']?.toInt()}' : '—';
+    final bpStr = bpLatest != null
+        ? '${bpLatest['value_1']?.toInt()}/${bpLatest['value_2']?.toInt()}'
+        : '—';
     final bpStatus = bp?['status'] ?? 'No Reading';
 
     return GridView.count(
@@ -155,23 +199,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
       childAspectRatio: 1.5,
       children: [
         StatCard(
-          label: 'Blood Pressure', value: bpStr, sublabel: bpStatus, emoji: '❤️',
+          label: 'Blood Pressure',
+          value: bpStr,
+          sublabel: bpStatus,
+          emoji: '❤️',
           color: AppTheme.bpStatusColor(bpStatus),
           onTap: () => Navigator.pushNamed(context, '/bp').then((_) => _loadDashboard()),
         ),
         StatCard(
-          label: 'Weight', value: weight?['latest'] != null ? '${weight['latest']['value_1']} kg' : '—',
-          sublabel: weight?['bmi_status'] ?? '', emoji: '⚖️', color: AppColors.violet,
+          label: 'Weight',
+          value: weight?['latest'] != null
+              ? '${weight['latest']['value_1']} kg'
+              : '—',
+          sublabel: weight?['bmi_status'] ?? '',
+          emoji: '⚖️',
+          color: AppColors.violet,
           onTap: () => Navigator.pushNamed(context, '/weight').then((_) => _loadDashboard()),
         ),
         StatCard(
-          label: 'Water', value: '${water?['today_total'] ?? 0}L',
-          sublabel: '${water?['pct'] ?? 0}% of ${water?['target'] ?? 2.5}L', emoji: '💧', color: AppColors.water,
+          label: 'Water',
+          value: '${water?['today_total'] ?? 0}L',
+          sublabel: '${water?['pct'] ?? 0}% of ${water?['target'] ?? 2.5}L',
+          emoji: '💧',
+          color: AppColors.water,
           onTap: () => Navigator.pushNamed(context, '/water').then((_) => _loadDashboard()),
         ),
         StatCard(
-          label: 'Steps', value: '${steps?['count'] ?? 0}',
-          sublabel: '${steps?['pct'] ?? 0}% of ${steps?['target'] ?? 8000}', emoji: '👟', color: AppColors.info,
+          label: 'Steps',
+          value: '${steps?['count'] ?? 0}',
+          sublabel: '${steps?['pct'] ?? 0}% of ${steps?['target'] ?? 8000}',
+          emoji: '👟',
+          color: AppColors.info,
           onTap: () => Navigator.pushNamed(context, '/exercise').then((_) => _loadDashboard()),
         ),
       ],
@@ -184,23 +242,54 @@ class _DashboardScreenState extends State<DashboardScreen> {
       scrollDirection: Axis.horizontal,
       child: Row(
         children: [
-          QuickActionButton(emoji: '❤️', label: 'Log BP', color: AppColors.danger,
-              onTap: () => Navigator.pushNamed(context, '/bp').then((_) => _loadDashboard())),
+          QuickActionButton(
+            emoji: '❤️',
+            label: 'Log BP',
+            color: AppColors.danger,
+            onTap: () => Navigator.pushNamed(context, '/bp').then((_) => _loadDashboard()),
+          ),
           const SizedBox(width: 10),
-          QuickActionButton(emoji: '💧', label: 'Water', color: AppColors.water,
-              onTap: () => Navigator.pushNamed(context, '/water').then((_) => _loadDashboard())),
+          QuickActionButton(
+            emoji: '💧',
+            label: 'Water',
+            color: AppColors.water,
+            onTap: () => Navigator.pushNamed(context, '/water').then((_) => _loadDashboard()),
+          ),
           const SizedBox(width: 10),
-          QuickActionButton(emoji: '⚖️', label: 'Weight', color: AppColors.violet,
-              onTap: () => Navigator.pushNamed(context, '/weight').then((_) => _loadDashboard())),
+          QuickActionButton(
+            emoji: '⚖️',
+            label: 'Weight',
+            color: AppColors.violet,
+            onTap: () => Navigator.pushNamed(context, '/weight').then((_) => _loadDashboard()),
+          ),
           const SizedBox(width: 10),
-          QuickActionButton(emoji: '😴', label: 'Sleep', color: AppColors.sleep,
-              onTap: () => Navigator.pushNamed(context, '/sleep').then((_) => _loadDashboard())),
+          QuickActionButton(
+            emoji: '🍽️',
+            label: 'Meals',
+            color: AppColors.danger,
+            onTap: () => Navigator.pushNamed(context, '/meals').then((_) => _loadDashboard()),
+          ),
           const SizedBox(width: 10),
-          QuickActionButton(emoji: '🏃', label: 'Exercise', color: AppColors.exercise,
-              onTap: () => Navigator.pushNamed(context, '/exercise').then((_) => _loadDashboard())),
+          QuickActionButton(
+            emoji: '😴',
+            label: 'Sleep',
+            color: AppColors.sleep,
+            onTap: () => Navigator.pushNamed(context, '/sleep').then((_) => _loadDashboard()),
+          ),
           const SizedBox(width: 10),
-          QuickActionButton(emoji: '⏰', label: 'Reminders', color: AppColors.gold,
-              onTap: () => Navigator.pushNamed(context, '/reminders')),
+          QuickActionButton(
+            emoji: '🏃',
+            label: 'Exercise',
+            color: AppColors.exercise,
+            onTap: () => Navigator.pushNamed(context, '/exercise').then((_) => _loadDashboard()),
+          ),
+          const SizedBox(width: 10),
+          QuickActionButton(
+            emoji: '⏰',
+            label: 'Reminders',
+            color: AppColors.gold,
+            onTap: () => Navigator.pushNamed(context, '/reminders'),
+          ),
         ],
       ),
     );
@@ -220,9 +309,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(i['icon'] ?? '📊', style: const TextStyle(fontSize: 18)),
+                Text(
+                  i['icon'] ?? '📊',
+                  style: const TextStyle(fontSize: 18),
+                ),
                 const SizedBox(width: 10),
-                Expanded(child: Text(i['text'], style: const TextStyle(fontSize: 13, color: AppColors.textPrimary, height: 1.4))),
+                Expanded(
+                  child: Text(
+                    i['text'] ?? '',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF1F2937),
+                      height: 1.4,
+                    ),
+                  ),
+                ),
               ],
             ),
           );
@@ -238,9 +339,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return SectionCard(
       title: "🍱 Today's Meals",
-      trailing: PillChip(text: '${meals['done']}/${meals['total']}', color: AppColors.sage),
+      trailing: PillChip(
+        text: '${meals['done']}/${meals['total']}',
+        color: AppColors.sage,
+      ),
       child: items.isEmpty
-          ? const Text('No meal plan yet. Generate one from the Meals tab.', style: TextStyle(fontSize: 13, color: AppColors.textMuted))
+          ? const Text(
+              'No meal plan yet. Generate one from the Meals tab.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Color(0xFF6B7280),
+              ),
+            )
           : Column(
               children: items.map<Widget>((m) {
                 final recipe = m['recipe'];
@@ -249,18 +359,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: Row(
                     children: [
-                      Icon(done ? Icons.check_circle : Icons.radio_button_unchecked, color: done ? AppColors.success : AppColors.textMuted, size: 20),
+                      Icon(
+                        done ? Icons.check_circle : Icons.radio_button_unchecked,
+                        color: done ? AppColors.success : const Color(0xFF9CA3AF),
+                        size: 20,
+                      ),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(m['meal_slot'], style: const TextStyle(fontSize: 11, color: AppColors.textMuted, fontWeight: FontWeight.w700)),
-                            Text(recipe['name'], style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, decoration: done ? TextDecoration.lineThrough : null)),
+                            const Text(
+                              '',
+                              style: TextStyle(fontSize: 0),
+                            ),
+                            Text(
+                              m['meal_slot'] ?? '',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF6B7280),
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            Text(
+                              recipe['name'] ?? '',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF1F2937),
+                                decoration: done ? TextDecoration.lineThrough : null,
+                              ),
+                            ),
                           ],
                         ),
                       ),
-                      Text('${recipe['calories']} kcal', style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                      Text(
+                        '${recipe['calories']} kcal',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF6B7280),
+                        ),
+                      ),
                     ],
                   ),
                 );
@@ -277,22 +416,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return SectionCard(
       title: '💊 Medicines',
-      trailing: PillChip(text: '${meds['taken']}/${meds['total']}', color: AppColors.medicine),
+      trailing: PillChip(
+        text: '${meds['taken']}/${meds['total']}',
+        color: AppColors.medicine,
+      ),
       child: Column(
         children: list.map<Widget>((m) {
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 6),
             child: Row(
               children: [
-                Icon(m['taken'] == true ? Icons.check_circle : Icons.radio_button_unchecked,
-                    color: m['taken'] == true ? AppColors.success : AppColors.textMuted, size: 20),
+                Icon(
+                  m['taken'] == true
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  color: m['taken'] == true
+                      ? AppColors.success
+                      : const Color(0xFF9CA3AF),
+                  size: 20,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(m['name'], style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                      Text('${m['dosage'] ?? ''} · ${m['timing'] ?? ''}', style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                      Text(
+                        m['name'] ?? '',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1F2937),
+                        ),
+                      ),
+                      Text(
+                        '${m['dosage'] ?? ''} · ${m['timing'] ?? ''}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF6B7280),
+                        ),
+                      ),
                     ],
                   ),
                 ),

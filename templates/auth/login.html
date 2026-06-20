@@ -427,6 +427,7 @@
         id="loginForm"
         novalidate
       >
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <!-- Email -->
         <div class="form-group">
           <label class="form-label" for="email">Email Address</label>

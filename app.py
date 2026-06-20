@@ -5,6 +5,7 @@ from extensions import (
     db, bcrypt, login_manager, migrate, mail,
     cache, cors, jwt
 )
+from extensions import csrf
 # ------------------------------------------------------------
 # HELPER
 # ------------------------------------------------------------
@@ -33,6 +34,7 @@ def create_app(config_class=None):
 
     jwt.init_app(app)
     cors.init_app(app)
+    csrf.init_app(app)
 
     # --------------------------------------------------------
     # LOGIN MANAGER
@@ -60,6 +62,7 @@ def create_app(config_class=None):
 
         identity = jwt_data["sub"]
         return User.query.get(int(identity))
+    
 
     # --------------------------------------------------------
     # WEB BLUEPRINTS
@@ -102,6 +105,7 @@ def create_app(config_class=None):
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(notification_bp, url_prefix="/notifications")
 
+
     # --------------------------------------------------------
     # API BLUEPRINTS
     # --------------------------------------------------------
@@ -122,6 +126,15 @@ def create_app(config_class=None):
     app.register_blueprint(notification_api_bp, url_prefix="/api/v1/notifications")
     app.register_blueprint(family_api_bp, url_prefix="/api/v1/family")
     app.register_blueprint(report_api_bp, url_prefix="/api/v1/reports")
+
+    csrf.exempt(auth_api_bp)
+    csrf.exempt(dashboard_api_bp)
+    csrf.exempt(tracker_api_bp)
+    csrf.exempt(meal_api_bp)
+    csrf.exempt(exercise_api_bp)
+    csrf.exempt(notification_api_bp)
+    csrf.exempt(family_api_bp)
+    csrf.exempt(report_api_bp)
 
     # --------------------------------------------------------
     # GLOBAL TEMPLATE VARIABLES (IMPORTANT FIX)

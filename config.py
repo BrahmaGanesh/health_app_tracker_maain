@@ -28,7 +28,7 @@ class Config:
     JWT_REFRESH_TOKEN_EXPIRES   = timedelta(days=90)
     JWT_TOKEN_LOCATION          = ["headers"]
     JWT_HEADER_NAME             = "Authorization"
-    JWT_HEADER_TYPE             = "Bearer"
+    JWT_HEADER_TYPE             = "Bearazer"
 
     # ── Security ──────────────────────────────────────────────
     WTF_CSRF_ENABLED            = True
