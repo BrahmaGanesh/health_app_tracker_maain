@@ -129,18 +129,32 @@ class ApiService {
     }
   }
 
-  ApiResponse _handleError(dynamic e) {
-    if (e is DioException) {
-      if (e.response?.data is Map) {
-        return ApiResponse.fromJson(e.response!.data, e.response!.statusCode ?? 0);
-      }
-      if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.connectionError) {
-        return ApiResponse.error('No internet connection. Please check your network.');
-      }
-      return ApiResponse.error('Something went wrong. Please try again.');
-    }
-    return ApiResponse.error('Unexpected error occurred.');
-  }
+ ApiResponse _handleError(dynamic e) {
+   if (e is DioException) {
+     print("STATUS: ${e.response?.statusCode}");
+     print("BODY: ${e.response?.data}");
+
+     if (e.response?.data is Map) {
+       return ApiResponse.fromJson(
+         e.response!.data,
+         e.response!.statusCode ?? 0,
+       );
+     }
+
+     if (e.response?.data != null) {
+       return ApiResponse.error(e.response!.data.toString());
+     }
+
+     if (e.type == DioExceptionType.connectionTimeout ||
+         e.type == DioExceptionType.connectionError) {
+       return ApiResponse.error("No internet connection.");
+     }
+
+     return ApiResponse.error("HTTP ${e.response?.statusCode}");
+   }
+
+   return ApiResponse.error(e.toString());
+ }
 
   // ════════════════════════════════════════════════════════════
   // AUTH
@@ -148,9 +162,18 @@ class ApiService {
   Future<ApiResponse> register(String name, String email, String password) =>
       post('/auth/register', data: {'name': name, 'email': email, 'password': password});
 
-  Future<ApiResponse> login(String email, String password, {String? fcmToken}) =>
-      post('/auth/login', data: {'email': email, 'password': password, 'fcm_token': fcmToken});
+  Future<ApiResponse> login(String email, String password, {String? fcmToken}) {
+    print("LOGIN URL: ${AppConfig.apiV1}/auth/login");
 
+    return post(
+      '/auth/login',
+      data: {
+        'email': email,
+        'password': password,
+        'fcm_token': fcmToken,
+      },
+    );
+  }
   Future<ApiResponse> getMe() => get('/auth/me');
 
   Future<ApiResponse> updateFcmToken(String token) =>

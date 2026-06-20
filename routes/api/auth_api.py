@@ -33,18 +33,29 @@ def api_error(message="Error", code=400, errors=None):
 # ── REGISTER ─────────────────────────────────────────────────
 @auth_api_bp.route("/register", methods=["POST"])
 def register():
-    data = request.get_json() or {}
-    name     = data.get("name", "").strip()
-    email    = data.get("email", "").strip().lower()
+    data = request.get_json(silent=True)
+
+    print("========== REGISTER ==========")
+    print(data)
+
+    if data is None:
+        return api_error("Invalid JSON", 400)
+
+    name = data.get("name", "").strip()
+    email = data.get("email", "").strip().lower()
     password = data.get("password", "")
 
     errors = {}
+
     if not name or len(name) < 2:
         errors["name"] = "Name must be at least 2 characters."
+
     if not email or "@" not in email:
         errors["email"] = "Valid email required."
+
     if User.query.filter_by(email=email).first():
         errors["email"] = "Email already registered."
+
     if not password or len(password) < 6:
         errors["password"] = "Password must be at least 6 characters."
 
@@ -82,10 +93,17 @@ def register():
 # ── LOGIN ─────────────────────────────────────────────────────
 @auth_api_bp.route("/login", methods=["POST"])
 def login():
-    data     = request.get_json() or {}
-    email    = data.get("email", "").strip().lower()
+    data = request.get_json(silent=True)
+
+    print("========== LOGIN ==========")
+    print(data)
+
+    if data is None:
+        return api_error("Invalid JSON", 400)
+
+    email = data.get("email", "").strip().lower()
     password = data.get("password", "")
-    fcm_token= data.get("fcm_token", "")
+    fcm_token = data.get("fcm_token", "")
 
     if not email or not password:
         return api_error("Email and password required", 400)
