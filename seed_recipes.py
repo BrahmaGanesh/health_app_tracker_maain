@@ -336,7 +336,7 @@ with app.app_context():
             high_protein  = (rd.get("protein", 0) or 0) >= 20,
             high_fiber    = (rd.get("fiber",   0) or 0) >= 7,
             low_sodium    = (rd.get("sodium",  0) or 0) < 400,
-            low_sugar     = True,
+            
         )
         db.session.add(recipe)
         inserted += 1
