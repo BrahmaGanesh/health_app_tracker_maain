@@ -417,7 +417,7 @@
 
       <!-- REGISTER FORM -->
       <form method="POST" action="{{ url_for('auth.register') }}" id="registerForm" novalidate>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <!-- <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"> -->
         {{ csrf_token() if csrf_token is defined else '' }}
 
         <!-- Name -->

@@ -52,12 +52,16 @@ def create_app(config_class=None):
     # --------------------------------------------------------
     @jwt.user_identity_loader
     def identity(user):
-        return user.id if hasattr(user, "id") else user
+        if hasattr(user, "id"):
+            return str(user.id)
+        return str(user)
 
     @jwt.user_lookup_loader
-    def lookup(_header, jwt_data):
+    def lookup(_jwt_header, jwt_data):
         from models import User
-        return User.query.get(jwt_data["sub"])
+
+        identity = jwt_data["sub"]
+        return User.query.get(int(identity))
 
     # --------------------------------------------------------
     # WEB BLUEPRINTS
