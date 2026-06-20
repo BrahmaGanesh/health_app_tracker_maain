@@ -1,12 +1,10 @@
 import os
 from flask import Flask, render_template, jsonify, request
-
 from config import get_config
 from extensions import (
     db, bcrypt, login_manager, migrate, mail,
     cache, cors, jwt
 )
-
 # ------------------------------------------------------------
 # HELPER
 # ------------------------------------------------------------
