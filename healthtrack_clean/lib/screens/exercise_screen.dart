@@ -210,7 +210,6 @@ class _StepsTab extends StatefulWidget {
 
 class _StepsTabState extends State<_StepsTab> {
   final _stepService = StepTrackingService();
-  bool _initialized = false;
 
   @override
   void initState() {
@@ -225,7 +224,6 @@ class _StepsTabState extends State<_StepsTab> {
       final granted = await _stepService.requestPermission();
       if (granted == true) {await _stepService.startTracking();}
     }
-    if (mounted) setState(() => _initialized = true);
   }
 
   void _onStepUpdate() {

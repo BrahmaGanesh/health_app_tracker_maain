@@ -9,7 +9,7 @@ from flask_jwt_extended import (
 )
 from datetime import datetime, timedelta
 import secrets
-
+from extensions import csrf
 from extensions import db, bcrypt
 from models import User, UserHealthProfile, UserGoal, seed_health_conditions
 
@@ -32,6 +32,7 @@ def api_error(message="Error", code=400, errors=None):
 
 # ── REGISTER ─────────────────────────────────────────────────
 @auth_api_bp.route("/register", methods=["POST"])
+@csrf.exempt
 def register():
     data = request.get_json(silent=True)
 
@@ -92,6 +93,7 @@ def register():
 
 # ── LOGIN ─────────────────────────────────────────────────────
 @auth_api_bp.route("/login", methods=["POST"])
+@csrf.exempt
 def login():
     data = request.get_json(silent=True)
 
@@ -135,6 +137,7 @@ def login():
 
 # ── REFRESH TOKEN ─────────────────────────────────────────────
 @auth_api_bp.route("/refresh", methods=["POST"])
+@csrf.exempt
 @jwt_required(refresh=True)
 def refresh():
     user_id      = get_jwt_identity()
@@ -175,6 +178,7 @@ def update_fcm_token():
 
 # ── FORGOT PASSWORD ────────────────────────────────────────────
 @auth_api_bp.route("/forgot-password", methods=["POST"])
+@csrf.exempt
 def forgot_password():
     from flask_mail import Message
     from app import mail
@@ -216,6 +220,7 @@ def forgot_password():
 
 # ── RESET PASSWORD ─────────────────────────────────────────────
 @auth_api_bp.route("/reset-password", methods=["POST"])
+@csrf.exempt
 def reset_password():
     data     = request.get_json() or {}
     token    = data.get("token", "").strip()
@@ -243,6 +248,7 @@ def reset_password():
 
 # ── LOGOUT (clear FCM token) ──────────────────────────────────
 @auth_api_bp.route("/logout", methods=["POST"])
+@csrf.exempt
 @jwt_required()
 def logout():
     user = get_current_user()
@@ -254,6 +260,7 @@ def logout():
 
 # ── CHANGE PASSWORD ────────────────────────────────────────────
 @auth_api_bp.route("/change-password", methods=["POST"])
+@csrf.exempt
 @jwt_required()
 def change_password():
     user        = get_current_user()

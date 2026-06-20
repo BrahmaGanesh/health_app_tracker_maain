@@ -1,72 +1,44 @@
-# ============================================================
-# HEALTH TRACKER PLATFORM — FINAL PRODUCTION VERSION
-# app.py — Flask Application Factory (Website + API for APK)
-# ============================================================
-
 import os
 from flask import Flask, render_template, jsonify, request
 
-from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager
-from flask_bcrypt import Bcrypt
-from flask_migrate import Migrate
-from flask_mail import Mail
-
 from config import get_config
-from extensions import db, bcrypt, login_manager, migrate, mail, cache, csrf, cors, jwt
+from extensions import (
+    db, bcrypt, login_manager, migrate, mail,
+    cache, cors, jwt
+)
 
-
-# ============================================================
-# HELPER FUNCTION
-# ============================================================
-
+# ------------------------------------------------------------
+# HELPER
+# ------------------------------------------------------------
 def _is_api_request():
     return request.path.startswith("/api/")
 
 
-# ============================================================
-# APPLICATION FACTORY
-# ============================================================
-
+# ------------------------------------------------------------
+# APP FACTORY
+# ------------------------------------------------------------
 def create_app(config_class=None):
     app = Flask(__name__)
 
-    # ── Config ───────────────────────────────────────────────
     config_class = config_class or get_config()
     app.config.from_object(config_class)
 
-    # ── Init extensions ───────────────────────────────────────
+    # --------------------------------------------------------
+    # INIT EXTENSIONS
+    # --------------------------------------------------------
     db.init_app(app)
     bcrypt.init_app(app)
     login_manager.init_app(app)
     migrate.init_app(app, db)
     mail.init_app(app)
     cache.init_app(app)
-    csrf.init_app(app)
+
     jwt.init_app(app)
+    cors.init_app(app)
 
-    # CORS
-    cors.init_app(
-        app,
-        resources={r"/api/*": {
-            "origins": "*",
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"]
-        }}
-    )
-
-    # ── CSRF exemptions ───────────────────────────────────────
-    csrf.exempt("routes.api.auth_api")
-    csrf.exempt("routes.api.tracker_api")
-    csrf.exempt("routes.api.dashboard_api")
-    csrf.exempt("routes.api.meal_api")
-    csrf.exempt("routes.api.exercise_api")
-    csrf.exempt("routes.api.notification_api")
-    csrf.exempt("routes.api.family_api")
-    csrf.exempt("routes.api.report_api")
-    csrf.exempt("routes.google_auth")
-
-    # ── Login Manager ─────────────────────────────────────────
+    # --------------------------------------------------------
+    # LOGIN MANAGER
+    # --------------------------------------------------------
     login_manager.login_view = "auth.login"
     login_manager.session_protection = "strong"
 
@@ -75,20 +47,21 @@ def create_app(config_class=None):
         from models import User
         return User.query.get(int(user_id))
 
-    # ── JWT ───────────────────────────────────────────────────
+    # --------------------------------------------------------
+    # JWT CONFIG
+    # --------------------------------------------------------
     @jwt.user_identity_loader
-    def user_identity(user):
-        return getattr(user, "id", user)
+    def identity(user):
+        return user.id if hasattr(user, "id") else user
 
     @jwt.user_lookup_loader
-    def user_lookup(_header, jwt_data):
+    def lookup(_header, jwt_data):
         from models import User
         return User.query.get(jwt_data["sub"])
 
-    # ============================================================
-    # BLUEPRINTS (WEB)
-    # ============================================================
-
+    # --------------------------------------------------------
+    # WEB BLUEPRINTS
+    # --------------------------------------------------------
     from routes.auth_routes import auth_bp
     from routes.google_auth import google_auth_bp
     from routes.main_routes import main_bp
@@ -102,8 +75,8 @@ def create_app(config_class=None):
     from routes.family_routes import family_bp
     from routes.exercise_routes import exercise_bp
     from routes.sleep_routes import sleep_bp
-    from routes.email_report_routes import email_report_bp
     from routes.report_routes import report_bp
+    from routes.email_report_routes import email_report_bp
     from routes.document_routes import document_bp
     from routes.admin_routes import admin_bp
     from routes.notification_routes import notification_bp
@@ -127,10 +100,9 @@ def create_app(config_class=None):
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(notification_bp, url_prefix="/notifications")
 
-    # ============================================================
-    # API BLUEPRINTS (APK)
-    # ============================================================
-
+    # --------------------------------------------------------
+    # API BLUEPRINTS
+    # --------------------------------------------------------
     from routes.api.auth_api import auth_api_bp
     from routes.api.dashboard_api import dashboard_api_bp
     from routes.api.tracker_api import tracker_api_bp
@@ -149,25 +121,31 @@ def create_app(config_class=None):
     app.register_blueprint(family_api_bp, url_prefix="/api/v1/family")
     app.register_blueprint(report_api_bp, url_prefix="/api/v1/reports")
 
-    # ============================================================
-    # CONTEXT PROCESSOR
-    # ============================================================
-
+    # --------------------------------------------------------
+    # GLOBAL TEMPLATE VARIABLES (IMPORTANT FIX)
+    # --------------------------------------------------------
     @app.context_processor
     def inject_globals():
         from flask_login import current_user
-        unread_alerts = unread_notifs = 0
+
+        unread_alerts = 0
+        unread_notifs = 0
 
         if current_user.is_authenticated:
             try:
                 from models import Alert, Notification
+
                 unread_alerts = Alert.query.filter_by(
-                    user_id=current_user.id, is_read=False, is_dismissed=False
+                    user_id=current_user.id,
+                    is_read=False,
+                    is_dismissed=False
                 ).count()
 
                 unread_notifs = Notification.query.filter_by(
-                    user_id=current_user.id, is_read=False
+                    user_id=current_user.id,
+                    is_read=False
                 ).count()
+
             except Exception:
                 pass
 
@@ -175,54 +153,33 @@ def create_app(config_class=None):
             "app_name": app.config.get("APP_NAME", "HealthTrack"),
             "app_version": app.config.get("APP_VERSION", "2.0.0"),
             "unread_alerts": unread_alerts,
-            "unread_notifs": unread_notifs,
+            "unread_notifs": unread_notifs
         }
 
-    # ============================================================
-    # FILTERS
-    # ============================================================
-
-    @app.template_filter("datetime_format")
-    def datetime_format(value, fmt="%d %b %Y"):
-        return value.strftime(fmt) if value else "—"
-
-    @app.template_filter("time_format")
-    def time_format(value):
-        return value.strftime("%I:%M %p") if value else "—"
-
-    @app.template_filter("round2")
-    def round2(value):
-        try:
-            return round(float(value), 1)
-        except:
-            return 0
-
-    # ============================================================
-    # ERROR HANDLERS (INSIDE APP CONTEXT - FIXED)
-    # ============================================================
-
+    # --------------------------------------------------------
+    # ERROR HANDLERS
+    # --------------------------------------------------------
     @app.errorhandler(404)
     def not_found(e):
         if _is_api_request():
-            return jsonify({"success": False, "error": "Not found", "code": 404}), 404
+            return jsonify({"success": False, "error": "Not found"}), 404
         return render_template("errors/404.html"), 404
 
     @app.errorhandler(500)
     def server_error(e):
         if _is_api_request():
-            return jsonify({"success": False, "error": "Internal server error", "code": 500}), 500
+            return jsonify({"success": False, "error": "Server error"}), 500
         return render_template("errors/500.html"), 500
 
     @app.errorhandler(403)
     def forbidden(e):
         if _is_api_request():
-            return jsonify({"success": False, "error": "Forbidden", "code": 403}), 403
+            return jsonify({"success": False, "error": "Forbidden"}), 403
         return render_template("errors/403.html"), 403
 
-    # ============================================================
-    # ENTRY ROUTE
-    # ============================================================
-
+    # --------------------------------------------------------
+    # HEALTH CHECK
+    # --------------------------------------------------------
     @app.route("/api/v1/health")
     def health():
         return jsonify({
@@ -231,10 +188,9 @@ def create_app(config_class=None):
             "version": app.config.get("APP_VERSION")
         })
 
-    # ============================================================
-    # DB INIT (SAFE)
-    # ============================================================
-
+    # --------------------------------------------------------
+    # DB INIT
+    # --------------------------------------------------------
     with app.app_context():
         try:
             db.create_all()
@@ -243,10 +199,6 @@ def create_app(config_class=None):
 
     return app
 
-
-# ============================================================
-# ENTRY POINT (RENDER SAFE)
-# ============================================================
 
 app = create_app()
 

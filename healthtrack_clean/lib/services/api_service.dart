@@ -39,8 +39,8 @@ class ApiService {
   ApiService._internal() {
     _dio = Dio(BaseOptions(
       baseUrl: AppConfig.apiV1,
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 15),
+      connectTimeout: const Duration(seconds: 60),
+      receiveTimeout: const Duration(seconds: 60),
       headers: {'Content-Type': 'application/json'},
     ));
 
@@ -129,32 +129,33 @@ class ApiService {
     }
   }
 
- ApiResponse _handleError(dynamic e) {
-   if (e is DioException) {
-     print("STATUS: ${e.response?.statusCode}");
-     print("BODY: ${e.response?.data}");
+   ApiResponse _handleError(dynamic e) {
+     print("====================");
+     print(e);
+     print(e.runtimeType);
 
-     if (e.response?.data is Map) {
-       return ApiResponse.fromJson(
-         e.response!.data,
-         e.response!.statusCode ?? 0,
-       );
+     if (e is DioException) {
+       print("TYPE: ${e.type}");
+       print("MESSAGE: ${e.message}");
+       print("STATUS: ${e.response?.statusCode}");
+       print("BODY: ${e.response?.data}");
+
+       if (e.response?.data != null) {
+         return ApiResponse.error(e.response!.data.toString());
+       }
+
+       if (e.type == DioExceptionType.connectionTimeout ||
+           e.type == DioExceptionType.connectionError) {
+         return ApiResponse.error("No internet connection.");
+       }
+
+       return ApiResponse.error(
+           "HTTP ${e.response?.statusCode ?? 'Unknown'}");
      }
 
-     if (e.response?.data != null) {
-       return ApiResponse.error(e.response!.data.toString());
-     }
-
-     if (e.type == DioExceptionType.connectionTimeout ||
-         e.type == DioExceptionType.connectionError) {
-       return ApiResponse.error("No internet connection.");
-     }
-
-     return ApiResponse.error("HTTP ${e.response?.statusCode}");
+     return ApiResponse.error(e.toString());
    }
 
-   return ApiResponse.error(e.toString());
- }
 
   // ════════════════════════════════════════════════════════════
   // AUTH

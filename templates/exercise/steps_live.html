@@ -1,0 +1,645 @@
+{% extends "base.html" %}
+{% block title %}Live Step Tracker | HealthTrack{% endblock %}
+{% block page_title %}Live Step Tracker{% endblock %}
+
+{% block content %}
+<style>
+/* ── PAGE LAYOUT ─────────────────────────────────────────────── */
+.steps-hero {
+  background: linear-gradient(135deg, #1d4ed8, #3b82f6, #0ea5e9);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  color: white;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  position: relative;
+  overflow: hidden;
+}
+.steps-hero::after {
+  content: '👟';
+  position: absolute;
+  right: 24px; top: 50%;
+  transform: translateY(-50%);
+  font-size: 110px;
+  opacity: 0.08;
+}
+.hero-title {
+  font-family: 'Fraunces', serif;
+  font-size: clamp(20px, 3vw, 30px);
+  font-weight: 900;
+  margin-bottom: 6px;
+  position: relative;
+}
+.hero-sub { font-size: 13px; opacity: 0.8; position: relative; }
+.live-badge {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 100px;
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+.live-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #4ade80;
+  animation: livePulse 1.5s ease-in-out infinite;
+}
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* ── MAIN GRID ───────────────────────────────────────────────── */
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: 22px;
+  margin-bottom: 22px;
+}
+@media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+
+/* ── LIVE COUNTER CARD ───────────────────────────────────────── */
+.counter-card {
+  background: var(--card-bg);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  padding: 30px;
+  text-align: center;
+  animation: fadeUp 0.4s ease both;
+}
+.ring-wrap {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  margin: 0 auto 24px;
+}
+.ring-svg {
+  width: 220px;
+  height: 220px;
+  transform: rotate(-90deg);
+}
+.ring-bg { fill: none; stroke: rgba(59,130,246,0.12); stroke-width: 16; }
+.ring-fill {
+  fill: none;
+  stroke: url(#stepGrad);
+  stroke-width: 16;
+  stroke-linecap: round;
+  stroke-dasharray: 628;
+  stroke-dashoffset: 628;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.step-count {
+  font-family: 'DM Mono', monospace;
+  font-size: clamp(36px, 5vw, 54px);
+  font-weight: 600;
+  color: #1d4ed8;
+  line-height: 1;
+  transition: all 0.3s ease;
+}
+.step-count.goal-reached { color: #22c55e; }
+.step-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+.step-pct {
+  font-size: 14px;
+  font-weight: 700;
+  color: #3b82f6;
+  margin-top: 2px;
+}
+
+.counter-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.cstat {
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  padding: 12px 8px;
+  text-align: center;
+}
+.cstat-val {
+  font-family: 'DM Mono', monospace;
+  font-size: 17px;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 3px;
+}
+.cstat-lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-muted);
+  font-weight: 700;
+}
+
+/* Progress bar */
+.progress-bar-bg {
+  height: 10px;
+  background: rgba(59,130,246,0.12);
+  border-radius: 100px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 100px;
+  background: linear-gradient(90deg, #3b82f6, #0ea5e9);
+  transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+  width: 0%;
+}
+.progress-bar-fill.goal-reached {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+/* ── SIDE PANEL ──────────────────────────────────────────────── */
+.side-panel { display: flex; flex-direction: column; gap: 16px; }
+
+.card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  animation: fadeUp 0.4s ease both;
+}
+.card-hdr {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-title {
+  font-family: 'Fraunces', serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.card-body { padding: 16px 18px; }
+
+.fl { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--text-muted); margin-bottom: 6px; }
+.fi { width: 100%; border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 11px 14px; font-family: 'DM Sans', sans-serif; font-size: 14px; color: var(--text-primary); background: var(--input-bg); outline: none; transition: border-color 0.2s; }
+.fi:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
+.save-btn { width: 100%; background: linear-gradient(135deg, #1d4ed8, #3b82f6); color: white; border: none; border-radius: var(--radius-sm); padding: 12px; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 700; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; margin-top: 10px; }
+.save-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(29,78,216,0.3); }
+.save-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+/* Quick add buttons */
+.quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px; }
+.qbtn {
+  background: rgba(59,130,246,0.07);
+  border: 1.5px solid rgba(59,130,246,0.15);
+  border-radius: var(--radius-sm);
+  padding: 10px 6px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  color: #1d4ed8;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+.qbtn:hover { background: rgba(59,130,246,0.14); transform: translateY(-1px); }
+.qbtn-val { font-size: 16px; display: block; margin-bottom: 2px; font-family: 'DM Mono', monospace; }
+
+/* History list */
+.hist-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.hist-row:last-child { border-bottom: none; }
+.hist-bar-bg { flex: 1; height: 6px; background: var(--border); border-radius: 100px; overflow: hidden; }
+.hist-bar-fill { height: 100%; border-radius: 100px; background: linear-gradient(90deg, #3b82f6, #0ea5e9); }
+.hist-steps { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 600; color: #1d4ed8; width: 55px; text-align: right; flex-shrink: 0; }
+.hist-day { font-size: 11px; color: var(--text-muted); width: 36px; flex-shrink: 0; }
+
+/* ── CHART ───────────────────────────────────────────────────── */
+.chart-card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  animation: fadeUp 0.4s 0.1s ease both;
+}
+.refresh-btn {
+  background: var(--bg);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.refresh-btn:hover { border-color: #3b82f6; color: #3b82f6; }
+.refresh-btn.spinning .ri { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.ri { display: inline-block; }
+
+/* Goal achieved banner */
+.goal-banner {
+  background: linear-gradient(135deg, #dcfce7, #d1fae5);
+  border: 1px solid #86efac;
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  animation: fadeUp 0.4s ease both;
+}
+.goal-banner.hidden { display: none; }
+
+/* Sync note */
+.sync-note {
+  background: rgba(59,130,246,0.06);
+  border-left: 3px solid #3b82f6;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 10px 14px;
+  font-size: 12px;
+  color: #1d4ed8;
+  line-height: 1.5;
+  margin-top: 12px;
+}
+</style>
+
+<!-- HERO -->
+<div class="steps-hero animate-fadeIn">
+  <div>
+    <div class="hero-title">👟 Live Step Tracker</div>
+    <div class="hero-sub">Steps update automatically from your phone · Goal: <strong id="heroGoal">{{ goal }}</strong> steps</div>
+    <div style="margin-top:10px;position:relative;">
+      <span class="live-badge"><span class="live-dot"></span> AUTO-SYNC ACTIVE</span>
+    </div>
+  </div>
+</div>
+
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+{% for cat, msg in messages %}
+<div class="alert-banner {{ cat }} animate-fadeIn"><span>{{ msg }}</span></div>
+{% endfor %}{% endif %}{% endwith %}
+
+<!-- GOAL ACHIEVED BANNER (shown via JS) -->
+<div class="goal-banner hidden" id="goalBanner">
+  <span style="font-size:28px;">🏆</span>
+  <div>
+    <div style="font-size:15px;font-weight:700;color:#166534;">Daily Goal Achieved!</div>
+    <div style="font-size:12px;color:#166534;opacity:0.8;">Amazing work — you've hit your step target for today!</div>
+  </div>
+</div>
+
+<!-- MAIN GRID -->
+<div class="main-grid">
+
+  <!-- LIVE COUNTER -->
+  <div class="counter-card">
+    <div class="ring-wrap">
+      <svg class="ring-svg" viewBox="0 0 220 220">
+        <defs>
+          <linearGradient id="stepGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%"   stop-color="#3b82f6"/>
+            <stop offset="100%" stop-color="#0ea5e9"/>
+          </linearGradient>
+        </defs>
+        <circle class="ring-bg" cx="110" cy="110" r="100"/>
+        <circle class="ring-fill" id="ringFill" cx="110" cy="110" r="100"/>
+      </svg>
+      <div class="ring-center">
+        <div class="step-count" id="stepCount">{{ today_steps }}</div>
+        <div class="step-label">STEPS TODAY</div>
+        <div class="step-pct" id="stepPct">0% of goal</div>
+      </div>
+    </div>
+
+    <div class="progress-bar-bg">
+      <div class="progress-bar-fill" id="progressBar"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:18px;">
+      <span>0</span>
+      <span id="barGoalLabel">{{ goal }} steps goal</span>
+    </div>
+
+    <div class="counter-stats">
+      <div class="cstat">
+        <span class="cstat-val" id="distVal" style="color:#0ea5e9;">{{ distance_km }}</span>
+        <span class="cstat-lbl">km</span>
+      </div>
+      <div class="cstat">
+        <span class="cstat-val" id="calVal" style="color:#ef4444;">{{ calories }}</span>
+        <span class="cstat-lbl">cal</span>
+      </div>
+      <div class="cstat">
+        <span class="cstat-val" id="pctVal" style="color:#22c55e;">{{ pct }}%</span>
+        <span class="cstat-lbl">goal</span>
+      </div>
+    </div>
+
+    <!-- Last updated -->
+    <div style="font-size:11px;color:var(--text-muted);text-align:center;margin-bottom:16px;">
+      Last synced: <span id="lastSynced">just now</span>
+      &nbsp;·&nbsp;
+      <button class="refresh-btn" id="refreshBtn" onclick="refreshNow()">
+        <span class="ri" id="refreshIcon">🔄</span> Refresh
+      </button>
+    </div>
+
+    <!-- Week chart -->
+    <div class="chart-card">
+      <div class="card-hdr">
+        <div class="card-title">📊 This Week</div>
+      </div>
+      <div style="padding:16px;">
+        <canvas id="weekChart" height="130"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="side-panel">
+
+    <!-- LOG STEPS FORM -->
+    <div class="card" style="animation-delay:0.05s;">
+      <div class="card-hdr"><div class="card-title">➕ Log Steps Manually</div></div>
+      <div class="card-body">
+
+        <!-- Quick presets -->
+        <label class="fl" style="margin-bottom:8px;">Quick Add</label>
+        <div class="quick-grid">
+          {% for steps, label in [(2000,'🚶 Short Walk'),(5000,'🏃 Mid Walk'),(8000,'🏅 Daily Goal'),(10000,'🏆 10K Steps')] %}
+          <button class="qbtn" onclick="setSteps({{ steps }})">
+            <span class="qbtn-val">{{ '{:,}'.format(steps) }}</span>
+            {{ label }}
+          </button>
+          {% endfor %}
+        </div>
+
+        <form method="POST" action="{{ url_for('exercise.log_steps') }}" id="stepsForm">
+            <form method="POST" action="{{ url_for('exercise.log_exercise') }}"></form>
+          <label class="fl">Custom Step Count</label>
+          <input type="number" name="steps" id="stepsInput" class="fi"
+                 placeholder="Enter steps..." min="0" max="100000"
+                 value="{{ today_steps or '' }}" required>
+          <button type="submit" class="save-btn" id="saveBtn">
+            👟 Save Steps
+          </button>
+        </form>
+
+        <div class="sync-note">
+          📱 <strong>Auto-sync:</strong> If you have the HealthTrack Android app installed, steps are
+          automatically synced every 5 minutes from your phone's pedometer sensor.
+          This page refreshes every 30 seconds.
+        </div>
+      </div>
+    </div>
+
+    <!-- HISTORY -->
+    <div class="card" style="animation-delay:0.1s;">
+      <div class="card-hdr">
+        <div class="card-title">📋 7-Day History</div>
+        <span style="background:rgba(59,130,246,0.1);color:#1d4ed8;border-radius:100px;padding:3px 12px;font-size:11px;font-weight:700;">
+          {{ week_data|length }} days
+        </span>
+      </div>
+      <div style="padding:12px 18px;">
+        {% set max_steps = (week_data | map(attribute='steps') | max) if week_data else 10000 %}
+        {% for day in week_data %}
+        {% set bar_pct = ((day.steps / max_steps) * 100)|round|int if max_steps > 0 else 0 %}
+        <div class="hist-row">
+          <div class="hist-day">{{ day.day }}</div>
+          <div class="hist-bar-bg">
+            <div class="hist-bar-fill" style="width:{{ bar_pct }}%;{% if day.steps >= goal %}background:linear-gradient(90deg,#22c55e,#4ade80);{% endif %}">
+            </div>
+          </div>
+          <div class="hist-steps">{{ '{:,}'.format(day.steps) }}</div>
+          {% if day.steps >= goal %}
+          <span title="Goal achieved!" style="font-size:14px;">✅</span>
+          {% else %}
+          <span style="width:18px;"></span>
+          {% endif %}
+        </div>
+        {% else %}
+        <div style="padding:20px;text-align:center;color:var(--text-muted);font-size:13px;">
+          No step history yet. Log your first steps above!
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- TIPS CARD -->
+    <div class="card" style="animation-delay:0.15s;">
+      <div class="card-hdr"><div class="card-title">💡 Step Tips for BP</div></div>
+      <div class="card-body" style="padding:14px 18px;">
+        {% for tip in [
+          ('❤️','10,000 steps/day can lower systolic BP by 4–9 mmHg'),
+          ('🏃','A 30-min brisk walk burns ~150 cal and improves circulation'),
+          ('🧘','Break steps into 3 x 10-min walks if 30 min is too much'),
+          ('🌅','Morning walks are most effective for BP management'),
+        ] %}
+        <div style="display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);">
+          <span style="font-size:16px;flex-shrink:0;">{{ tip[0] }}</span>
+          <span style="font-size:12px;color:var(--text-muted);line-height:1.5;">{{ tip[1] }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const GOAL     = {{ goal }};
+const CIRCUMF  = 2 * Math.PI * 100; // 628.3
+
+// ── Initial values ────────────────────────────────────────────────
+let currentSteps = {{ today_steps or 0 }};
+let lastRefresh  = new Date();
+
+// ── Update all UI from a steps value ─────────────────────────────
+function updateUI(steps) {
+  const pct      = Math.min(100, Math.round(steps / GOAL * 100));
+  const distance = (steps * 0.00076).toFixed(2);
+  const calories = Math.round(steps * 0.04);
+  const reached  = steps >= GOAL;
+
+  // Animated counter
+  animateCounter('stepCount', currentSteps, steps, 600);
+  currentSteps = steps;
+
+  // Ring
+  const offset = CIRCUMF - (pct / 100) * CIRCUMF;
+  document.getElementById('ringFill').style.strokeDashoffset = offset;
+
+  // Text
+  document.getElementById('stepPct').textContent  = `${pct}% of goal`;
+  document.getElementById('progressBar').style.width = `${pct}%`;
+  document.getElementById('pctVal').textContent   = `${pct}%`;
+  document.getElementById('distVal').textContent  = `${distance}`;
+  document.getElementById('calVal').textContent   = `${calories}`;
+
+  // Color
+  const countEl = document.getElementById('stepCount');
+  const barEl   = document.getElementById('progressBar');
+  countEl.className = reached ? 'step-count goal-reached' : 'step-count';
+  barEl.className   = reached ? 'progress-bar-fill goal-reached' : 'progress-bar-fill';
+  document.getElementById('stepPct').style.color = reached ? '#22c55e' : '#3b82f6';
+
+  // Goal banner
+  document.getElementById('goalBanner').className = reached ? 'goal-banner animate-fadeIn' : 'goal-banner hidden';
+
+  // Last synced
+  lastRefresh = new Date();
+  updateSyncTime();
+}
+
+// ── Animated number counter ───────────────────────────────────────
+function animateCounter(id, from, to, duration) {
+  const el    = document.getElementById(id);
+  const diff  = to - from;
+  const steps = 30;
+  const step  = diff / steps;
+  let cur = from;
+  let i   = 0;
+  const timer = setInterval(() => {
+    cur += step;
+    i++;
+    el.textContent = Math.round(cur).toLocaleString();
+    if (i >= steps) { clearInterval(timer); el.textContent = to.toLocaleString(); }
+  }, duration / steps);
+}
+
+// ── Live sync time display ────────────────────────────────────────
+function updateSyncTime() {
+  const secs = Math.round((new Date() - lastRefresh) / 1000);
+  const el   = document.getElementById('lastSynced');
+  if (!el) return;
+  if (secs < 10)  el.textContent = 'just now';
+  else if (secs < 60) el.textContent = `${secs}s ago`;
+  else el.textContent = `${Math.round(secs/60)}m ago`;
+}
+setInterval(updateSyncTime, 5000);
+
+// ── Auto-refresh from backend every 30 seconds ───────────────────
+async function refreshNow(showSpinner = true) {
+  const btn  = document.getElementById('refreshBtn');
+  const icon = document.getElementById('refreshIcon');
+  if (showSpinner && btn) { btn.classList.add('spinning'); icon.textContent = '⏳'; }
+
+  try {
+    const resp = await fetch("{{ url_for('exercise.get_steps_api') if 'exercise.get_steps_api' in url_map else '' }}" || '/tracker/steps/today-json');
+    if (!resp.ok) throw new Error(resp.status);
+    const data = await resp.json();
+    if (data.success) updateUI(data.steps || 0);
+  } catch (err) {
+    // Silently fail — manual entry still works
+    console.log('Step sync:', err);
+  } finally {
+    if (showSpinner && btn) { btn.classList.remove('spinning'); icon.textContent = '🔄'; }
+  }
+}
+
+// Auto-refresh every 30 seconds
+setInterval(() => refreshNow(false), 30000);
+
+// ── Quick-set presets ─────────────────────────────────────────────
+function setSteps(val) {
+  document.getElementById('stepsInput').value = val;
+  document.getElementById('stepsInput').focus();
+}
+
+// ── Init ring on load ─────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  updateUI({{ today_steps or 0 }});
+
+  // Build week bar chart
+  const weekData = {{ week_data | tojson }};
+  const ctx = document.getElementById('weekChart').getContext('2d');
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: weekData.map(d => d.day),
+      datasets: [{
+        label: 'Steps',
+        data: weekData.map(d => d.steps),
+        backgroundColor: weekData.map(d =>
+          d.steps >= GOAL ? 'rgba(34,197,94,0.7)' : 'rgba(59,130,246,0.7)'
+        ),
+        borderRadius: 8,
+        borderSkipped: false,
+      }, {
+        label: 'Goal',
+        data: weekData.map(() => GOAL),
+        type: 'line',
+        borderColor: 'rgba(248,218,91,0.8)',
+        borderDash: [5,4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#142d4c',
+          titleColor: '#e8edf5',
+          bodyColor: '#9fd3c7',
+          padding: 12,
+          cornerRadius: 10,
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} steps`
+          }
+        }
+      },
+      scales: {
+        x: { grid: { color: 'rgba(0,0,0,0.03)' }, ticks: { color: '#6b7280', font: { size: 11 } } },
+        y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,0.03)' }, ticks: {
+          color: '#6b7280', font: { size: 11 },
+          callback: v => v >= 1000 ? `${v/1000}k` : v
+        }}
+      }
+    }
+  });
+});
+
+// ── Form submit feedback ──────────────────────────────────────────
+document.getElementById('stepsForm').addEventListener('submit', function() {
+  const btn = document.getElementById('saveBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Saving...';
+});
+</script>
+{% endblock %}

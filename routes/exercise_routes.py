@@ -87,6 +87,11 @@ def log_steps():
 def stopwatch():
     return render_template("exercise/stopwatch.html")
 
+@exercise_bp.route("/steps_live")
+@login_required
+def steps_live():
+    return render_template("exercise/steps_live.html")
+
 @exercise_bp.route("/breathing")
 @login_required
 def breathing():

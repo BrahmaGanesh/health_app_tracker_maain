@@ -18,7 +18,6 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  final _api = ApiService();
 
   @override
   Widget build(BuildContext context) {
