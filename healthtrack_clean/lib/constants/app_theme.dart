@@ -119,7 +119,7 @@ class AppTheme {
 }
 
 class AppConfig {
-  static const bool isProd = false;
+  static const bool isProd = true; // Set to false for development, true for production
 
   static const String devBaseUrl = "http://10.0.2.2:5000";
   static const String prodBaseUrl = "https://health-app-tracker-maa.onrender.com";
