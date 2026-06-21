@@ -1,12 +1,13 @@
 import os
-from flask import Flask, app, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 from config import get_config
+
 from extensions import (
     db, bcrypt, login_manager, migrate, mail,
-    cache, cors, jwt
+    cache, cors, jwt, csrf
 )
-from extensions import csrf
+
 # ------------------------------------------------------------
 # HELPER
 # ------------------------------------------------------------
@@ -20,11 +21,14 @@ def _is_api_request():
 def create_app(config_class=None):
     app = Flask(__name__)
 
+    # Proxy fix (Render / deployment safe)
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
-    app.config["PREFERRED_URL_SCHEME"] = "https://health-app-tracker-maa.onrender.com/auth/google/callback"
-    
+
     config_class = config_class or get_config()
     app.config.from_object(config_class)
+
+    # FIX: wrong usage of PREFERRED_URL_SCHEME (keep ONLY scheme, not full URL)
+    app.config["PREFERRED_URL_SCHEME"] = "https"
 
     # --------------------------------------------------------
     # INIT EXTENSIONS
@@ -56,17 +60,22 @@ def create_app(config_class=None):
     # --------------------------------------------------------
     @jwt.user_identity_loader
     def identity(user):
-        if hasattr(user, "id"):
-            return str(user.id)
-        return str(user)
+        return str(user.id) if hasattr(user, "id") else str(user)
 
     @jwt.user_lookup_loader
     def lookup(_jwt_header, jwt_data):
         from models import User
-
         identity = jwt_data["sub"]
         return User.query.get(int(identity))
-    
+
+    # --------------------------------------------------------
+    # CSRF FIX (CLEAN + SAFE VERSION)
+    # --------------------------------------------------------
+    @app.before_request
+    def disable_csrf_for_api():
+        # ONLY API v1 is excluded
+        if request.path.startswith("/api/v1/"):
+            setattr(request, "_dont_enforce_csrf_checks", True)
 
     # --------------------------------------------------------
     # WEB BLUEPRINTS
@@ -109,7 +118,6 @@ def create_app(config_class=None):
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(notification_bp, url_prefix="/notifications")
 
-
     # --------------------------------------------------------
     # API BLUEPRINTS
     # --------------------------------------------------------
@@ -131,17 +139,8 @@ def create_app(config_class=None):
     app.register_blueprint(family_api_bp, url_prefix="/api/v1/family")
     app.register_blueprint(report_api_bp, url_prefix="/api/v1/reports")
 
-    csrf.exempt(auth_api_bp)
-    csrf.exempt(dashboard_api_bp)
-    csrf.exempt(tracker_api_bp)
-    csrf.exempt(meal_api_bp)
-    csrf.exempt(exercise_api_bp)
-    csrf.exempt(notification_api_bp)
-    csrf.exempt(family_api_bp)
-    csrf.exempt(report_api_bp)
-
     # --------------------------------------------------------
-    # GLOBAL TEMPLATE VARIABLES (IMPORTANT FIX)
+    # GLOBAL TEMPLATE VARIABLES
     # --------------------------------------------------------
     @app.context_processor
     def inject_globals():
@@ -213,8 +212,8 @@ def create_app(config_class=None):
     with app.app_context():
         try:
             db.create_all()
-        except Exception:
-            pass
+        except Exception as e:
+            print("DB init error:", e)
 
     return app
 
