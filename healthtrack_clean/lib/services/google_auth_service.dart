@@ -12,11 +12,11 @@ class GoogleAuthService {
   final _api = ApiService();
 
   static const String _webClientId =
-      'YOUR_WEB_CLIENT_ID.apps.googleusercontent.com';
+      '265872207993-kqll8lric9cuf36jn8q4nn64hc7ml3rh.apps.googleusercontent.com';
 
   final GoogleSignIn _googleSignIn = GoogleSignIn(
-    clientId: _webClientId,
-    scopes: ['email', 'profile', 'openid'],
+    serverClientId: _webClientId,
+    scopes: ['email'],
   );
 
   // ── SIGN IN ─────────────────────────────────────────────

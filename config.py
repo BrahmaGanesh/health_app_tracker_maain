@@ -18,9 +18,24 @@ class Config:
     APP_VERSION             = os.environ.get("APP_VERSION", "2.0.0")
 
     # ── Database ──────────────────────────────────────────────
-    SQLALCHEMY_DATABASE_URI         = os.environ.get("DATABASE_URL", "sqlite:///health_tracker.db")
-    SQLALCHEMY_TRACK_MODIFICATIONS  = False
-    SQLALCHEMY_ECHO                 = False
+    _db_url = os.environ.get("DATABASE_URL", "sqlite:///health_tracker.db")
+
+    # Render PostgreSQL compatibility
+    if _db_url.startswith("postgres://"):
+        _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+
+    if _db_url.startswith("postgresql://") and "sslmode=" not in _db_url:
+        separator = "&" if "?" in _db_url else "?"
+        _db_url = f"{_db_url}{separator}sslmode=require"
+
+    SQLALCHEMY_DATABASE_URI = _db_url
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SQLALCHEMY_ECHO = False
+
+    SQLALCHEMY_ENGINE_OPTIONS = {
+        "pool_pre_ping": True,
+        "pool_recycle": 300,
+    }
 
     # ── JWT (for APK API auth) ────────────────────────────────
     JWT_SECRET_KEY              = os.environ.get("JWT_SECRET_KEY", "jwt-secret-change-in-prod")
@@ -28,7 +43,7 @@ class Config:
     JWT_REFRESH_TOKEN_EXPIRES   = timedelta(days=90)
     JWT_TOKEN_LOCATION          = ["headers"]
     JWT_HEADER_NAME             = "Authorization"
-    JWT_HEADER_TYPE             = "Bearazer"
+    JWT_HEADER_TYPE             = "Bearer"
 
     # ── Security ──────────────────────────────────────────────
     WTF_CSRF_ENABLED            = True

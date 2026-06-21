@@ -1,13 +1,9 @@
-// ============================================================
-// lib/main.dart — App Entry Point
-// ============================================================
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 
-import 'constants/app_theme.dart';          // <-- UNCOMMENT
+import 'constants/app_theme.dart';
 import 'services/auth_service.dart';
 import 'services/step_tracking_service.dart';
 
@@ -17,7 +13,7 @@ import 'screens/bp_tracker_screen.dart';
 import 'screens/water_tracker_screen.dart';
 import 'screens/weight_tracker_screen.dart';
 import 'screens/sleep_tracker_screen.dart';
-import 'screens/exercise_screen.dart';      // <-- UNCOMMENT
+import 'screens/exercise_screen.dart';
 import 'screens/meal_screen.dart';
 import 'screens/analytics_screen.dart';
 import 'screens/family_screen.dart';
@@ -49,20 +45,18 @@ class HealthTrackApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthService()),
-        ChangeNotifierProvider(create: (_) => StepTrackingService()),
+        ChangeNotifierProvider(
+          create: (_) => StepTrackingService()..init(),
+        ),
       ],
       child: MaterialApp(
         title: 'HealthTrack',
         debugShowCheckedModeBanner: false,
-
         theme: AppTheme.light(),
         darkTheme: AppTheme.dark(),
         themeMode: ThemeMode.system,
-
         navigatorKey: navigatorKey,
-
         initialRoute: '/',
-
         routes: {
           '/': (context) => const SplashScreen(),
           '/login': (context) => const LoginScreen(),
@@ -93,11 +87,9 @@ void handleNotificationTap(Map<String, dynamic> data) {
     case 'reminder':
       state.pushNamed('/reminders');
       break;
-
     case 'alert':
       state.pushNamed('/dashboard');
       break;
-
     default:
       state.pushNamed('/dashboard');
   }
