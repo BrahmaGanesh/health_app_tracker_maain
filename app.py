@@ -1,5 +1,6 @@
 import os
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, app, render_template, jsonify, request
+from werkzeug.middleware.proxy_fix import ProxyFix
 from config import get_config
 from extensions import (
     db, bcrypt, login_manager, migrate, mail,
@@ -19,6 +20,9 @@ def _is_api_request():
 def create_app(config_class=None):
     app = Flask(__name__)
 
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    app.config["PREFERRED_URL_SCHEME"] = "https://health-app-tracker-maa.onrender.com/auth/google/callback"
+    
     config_class = config_class or get_config()
     app.config.from_object(config_class)
 
