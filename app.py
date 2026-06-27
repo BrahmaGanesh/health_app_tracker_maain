@@ -73,7 +73,6 @@ def create_app(config_class=None):
     # --------------------------------------------------------
     @app.before_request
     def disable_csrf_for_api():
-        # ONLY API v1 is excluded
         if request.path.startswith("/api/v1/"):
             setattr(request, "_dont_enforce_csrf_checks", True)
 
@@ -129,6 +128,18 @@ def create_app(config_class=None):
     from routes.api.notification_api import notification_api_bp
     from routes.api.family_api import family_api_bp
     from routes.api.report_api import report_api_bp
+
+
+    csrf.exempt(auth_api_bp)
+    csrf.exempt(dashboard_api_bp)
+    csrf.exempt(tracker_api_bp)
+    csrf.exempt(meal_api_bp)
+    csrf.exempt(exercise_api_bp)
+    csrf.exempt(notification_api_bp)
+    csrf.exempt(family_api_bp)
+    csrf.exempt(report_api_bp)
+
+
 
     app.register_blueprint(auth_api_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(dashboard_api_bp, url_prefix="/api/v1/dashboard")

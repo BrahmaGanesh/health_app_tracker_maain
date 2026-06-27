@@ -26,6 +26,9 @@ dependencies:
   firebase_core: ^4.0.0
   firebase_messaging: ^16.0.0
 
+  sqflite: ^2.3.3+1
+  path: ^1.9.0
+
   # Charts
   fl_chart: ^1.2.0
 

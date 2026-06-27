@@ -9,6 +9,7 @@
 # ============================================================
 
 import secrets
+import traceback
 from flask import (
     Blueprint, redirect, url_for, request,
     session, flash, jsonify, current_app
@@ -192,6 +193,7 @@ def google_callback():
 
 @google_auth_bp.route("/api/v1/auth/google", methods=["POST"])
 def api_google_login():
+    print("========== GOOGLE API CALLED ==========")
     """
     APK sends the id_token from Flutter's google_sign_in.
     We verify it server-side and return JWT tokens.
@@ -211,6 +213,9 @@ def api_google_login():
         from google.auth.transport import requests as google_requests
 
         # Verify the id_token with Google
+        print(data)
+        print(id_token[:50] if id_token else "NO TOKEN")
+
         idinfo = google_id_token.verify_oauth2_token(
             id_token,
             google_requests.Request(),
@@ -252,7 +257,11 @@ def api_google_login():
     except ValueError as e:
         return jsonify({"success": False, "message": f"Invalid Google token: {str(e)}"}), 401
     except Exception as e:
-        return jsonify({"success": False, "message": f"Sign-in failed: {str(e)}"}), 500
+         traceback.print_exc()
+         return jsonify({
+             "success": False,
+             "message": str(e)
+         }), 500
 
 
 # ════════════════════════════════════════════════════════════

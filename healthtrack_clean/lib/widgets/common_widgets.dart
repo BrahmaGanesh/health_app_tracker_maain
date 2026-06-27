@@ -1,6 +1,5 @@
 // ============================================================
 // lib/widgets/common_widgets.dart — Reusable UI Components
-// Cards, stat tiles, bottom nav, app bar matching website style
 // ============================================================
 
 import 'package:flutter/material.dart';
@@ -8,7 +7,126 @@ import 'package:percent_indicator/percent_indicator.dart';
 import '../constants/app_theme.dart';
 
 // ════════════════════════════════════════════════════════════
-// STAT CARD — shows a metric with icon, value, label
+// SYNC BADGE
+// ════════════════════════════════════════════════════════════
+class SyncBadge extends StatelessWidget {
+  final bool isOnline;
+  const SyncBadge(this.isOnline, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isOnline ? AppColors.success : AppColors.warning;
+    final text = isOnline ? 'Online' : 'Offline';
+    final icon = isOnline ? Icons.cloud_done_rounded : Icons.cloud_off_rounded;
+
+    return Container(
+      margin: const EdgeInsets.only(right: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: color.withOpacity(0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// CARD BOX
+// ════════════════════════════════════════════════════════════
+class CardBox extends StatelessWidget {
+  final bool isDark;
+  final Color cardBg;
+  final Color border;
+  final Widget child;
+  final EdgeInsets padding;
+  final EdgeInsets margin;
+
+  const CardBox({
+    super.key,
+    required this.isDark,
+    required this.cardBg,
+    required this.border,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.margin = EdgeInsets.zero,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: margin,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: border),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.18 : 0.05),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// LEGEND DOT
+// ════════════════════════════════════════════════════════════
+class LDot extends StatelessWidget {
+  final Color color;
+  final String label;
+
+  const LDot(this.color, this.label, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 10,
+          height: 10,
+          decoration: BoxDecoration(
+            color: color,
+            borderRadius: BorderRadius.circular(100),
+          ),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 12,
+            color: AppColors.textMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// STAT CARD
 // ════════════════════════════════════════════════════════════
 class StatCard extends StatelessWidget {
   final String label;
@@ -19,8 +137,13 @@ class StatCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   const StatCard({
-    super.key, required this.label, required this.value,
-    this.sublabel, required this.color, this.emoji, this.onTap,
+    super.key,
+    required this.label,
+    required this.value,
+    this.sublabel,
+    required this.color,
+    this.emoji,
+    this.onTap,
   });
 
   @override
@@ -33,7 +156,13 @@ class StatCard extends StatelessWidget {
           color: Theme.of(context).cardTheme.color,
           borderRadius: BorderRadius.circular(16),
           border: Border(top: BorderSide(color: color, width: 3)),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 12, offset: const Offset(0, 4))],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            )
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -43,17 +172,36 @@ class StatCard extends StatelessWidget {
                 if (emoji != null) Text(emoji!, style: const TextStyle(fontSize: 13)),
                 if (emoji != null) const SizedBox(width: 4),
                 Expanded(
-                  child: Text(label.toUpperCase(),
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 0.8, color: AppColors.textMuted),
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                  child: Text(
+                    label.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.8,
+                      color: AppColors.textMuted,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(value, style: TextStyle(fontFamily: 'monospace', fontSize: 24, fontWeight: FontWeight.w600, color: color)),
+            Text(
+              value,
+              style: TextStyle(
+                fontFamily: 'monospace',
+                fontSize: 24,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
             if (sublabel != null) ...[
               const SizedBox(height: 2),
-              Text(sublabel!, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+              Text(
+                sublabel!,
+                style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+              ),
             ],
           ],
         ),
@@ -63,7 +211,7 @@ class StatCard extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════
-// SECTION CARD — wraps content in a titled card
+// SECTION CARD
 // ════════════════════════════════════════════════════════════
 class SectionCard extends StatelessWidget {
   final String title;
@@ -72,8 +220,11 @@ class SectionCard extends StatelessWidget {
   final EdgeInsets padding;
 
   const SectionCard({
-    super.key, required this.title, required this.child,
-    this.trailing, this.padding = const EdgeInsets.all(16),
+    super.key,
+    required this.title,
+    required this.child,
+    this.trailing,
+    this.padding = const EdgeInsets.all(16),
   });
 
   @override
@@ -91,7 +242,17 @@ class SectionCard extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             child: Row(
               children: [
-                Expanded(child: Text(title, style: const TextStyle(fontFamily: 'Fraunces', fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary))),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontFamily: 'Fraunces',
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
                 if (trailing != null) trailing!,
               ],
             ),
@@ -105,7 +266,7 @@ class SectionCard extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════
-// PROGRESS RING — circular progress with center label
+// PROGRESS RING
 // ════════════════════════════════════════════════════════════
 class ProgressRing extends StatelessWidget {
   final double percent;
@@ -115,8 +276,12 @@ class ProgressRing extends StatelessWidget {
   final double radius;
 
   const ProgressRing({
-    super.key, required this.percent, required this.centerText,
-    required this.label, required this.color, this.radius = 50,
+    super.key,
+    required this.percent,
+    required this.centerText,
+    required this.label,
+    required this.color,
+    this.radius = 50,
   });
 
   @override
@@ -133,7 +298,15 @@ class ProgressRing extends StatelessWidget {
       center: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(centerText, style: TextStyle(fontFamily: 'monospace', fontSize: radius * 0.32, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+          Text(
+            centerText,
+            style: TextStyle(
+              fontFamily: 'monospace',
+              fontSize: radius * 0.32,
+              fontWeight: FontWeight.w600,
+              color: AppColors.textPrimary,
+            ),
+          ),
           Text(label, style: const TextStyle(fontSize: 10, color: AppColors.textMuted)),
         ],
       ),
@@ -142,7 +315,7 @@ class ProgressRing extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════
-// PRIMARY APP BAR — gradient hero header
+// PRIMARY APP BAR HEADER
 // ════════════════════════════════════════════════════════════
 class GradientHeader extends StatelessWidget {
   final String title;
@@ -152,9 +325,12 @@ class GradientHeader extends StatelessWidget {
   final String? emoji;
 
   const GradientHeader({
-    super.key, required this.title, required this.subtitle,
+    super.key,
+    required this.title,
+    required this.subtitle,
     this.colors = const [AppColors.navy, Color(0xFF1E3F6E), AppColors.violet],
-    this.trailing, this.emoji,
+    this.trailing,
+    this.emoji,
   });
 
   @override
@@ -162,14 +338,27 @@ class GradientHeader extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(colors: colors, begin: Alignment.topLeft, end: Alignment.bottomRight),
+        gradient: LinearGradient(
+          colors: colors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Stack(
         children: [
           if (emoji != null)
-            Positioned(right: 10, top: 0, bottom: 0,
-                child: Center(child: Opacity(opacity: 0.1, child: Text(emoji!, style: const TextStyle(fontSize: 70))))),
+            Positioned(
+              right: 10,
+              top: 0,
+              bottom: 0,
+              child: Center(
+                child: Opacity(
+                  opacity: 0.1,
+                  child: Text(emoji!, style: const TextStyle(fontSize: 70)),
+                ),
+              ),
+            ),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -177,9 +366,20 @@ class GradientHeader extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontFamily: 'Fraunces', fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontFamily: 'Fraunces',
+                        fontSize: 24,
+                        fontWeight: FontWeight.w900,
+                        color: Colors.white,
+                      ),
+                    ),
                     const SizedBox(height: 4),
-                    Text(subtitle, style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.75))),
+                    Text(
+                      subtitle,
+                      style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.75)),
+                    ),
                   ],
                 ),
               ),
@@ -193,14 +393,19 @@ class GradientHeader extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════
-// PILL CHIP — small rounded label
+// PILL CHIP
 // ════════════════════════════════════════════════════════════
 class PillChip extends StatelessWidget {
   final String text;
   final Color color;
   final Color? bgColor;
 
-  const PillChip({super.key, required this.text, required this.color, this.bgColor});
+  const PillChip({
+    super.key,
+    required this.text,
+    required this.color,
+    this.bgColor,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -210,37 +415,10 @@ class PillChip extends StatelessWidget {
         color: bgColor ?? color.withOpacity(0.12),
         borderRadius: BorderRadius.circular(100),
       ),
-      child: Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color)),
-    );
-  }
-}
-
-// ════════════════════════════════════════════════════════════
-// BOTTOM NAVIGATION — 5 main sections
-// ════════════════════════════════════════════════════════════
-class AppBottomNav extends StatelessWidget {
-  final int currentIndex;
-  const AppBottomNav({super.key, required this.currentIndex});
-
-  static const _routes = ['/dashboard', '/meals', '/exercise', '/analytics', '/profile'];
-
-  void _onTap(BuildContext context, int index) {
-    if (index == currentIndex) return;
-    Navigator.of(context).pushReplacementNamed(_routes[index]);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return BottomNavigationBar(
-      currentIndex: currentIndex,
-      onTap: (i) => _onTap(context, i),
-      items: const [
-        BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
-        BottomNavigationBarItem(icon: Icon(Icons.restaurant_rounded), label: 'Meals'),
-        BottomNavigationBarItem(icon: Icon(Icons.fitness_center_rounded), label: 'Exercise'),
-        BottomNavigationBarItem(icon: Icon(Icons.bar_chart_rounded), label: 'Analytics'),
-        BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
-      ],
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color),
+      ),
     );
   }
 }
@@ -250,8 +428,10 @@ class AppBottomNav extends StatelessWidget {
 // ════════════════════════════════════════════════════════════
 class LoadingView extends StatelessWidget {
   const LoadingView({super.key});
+
   @override
-  Widget build(BuildContext context) => const Center(child: CircularProgressIndicator(color: AppColors.sage));
+  Widget build(BuildContext context) =>
+      const Center(child: CircularProgressIndicator(color: AppColors.sage));
 }
 
 class EmptyState extends StatelessWidget {
@@ -260,7 +440,13 @@ class EmptyState extends StatelessWidget {
   final String subtitle;
   final Widget? action;
 
-  const EmptyState({super.key, required this.emoji, required this.title, required this.subtitle, this.action});
+  const EmptyState({
+    super.key,
+    required this.emoji,
+    required this.title,
+    required this.subtitle,
+    this.action,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -272,10 +458,27 @@ class EmptyState extends StatelessWidget {
           children: [
             Text(emoji, style: const TextStyle(fontSize: 50)),
             const SizedBox(height: 12),
-            Text(title, style: const TextStyle(fontFamily: 'Fraunces', fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.textPrimary), textAlign: TextAlign.center),
+            Text(
+              title,
+              style: const TextStyle(
+                fontFamily: 'Fraunces',
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: AppColors.textPrimary,
+              ),
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 6),
-            Text(subtitle, style: const TextStyle(fontSize: 13, color: AppColors.textMuted), textAlign: TextAlign.center),
-            if (action != null) Padding(padding: const EdgeInsets.only(top: 16), child: action!),
+            Text(
+              subtitle,
+              style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
+              textAlign: TextAlign.center,
+            ),
+            if (action != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 16),
+                child: action!,
+              ),
           ],
         ),
       ),
@@ -284,7 +487,7 @@ class EmptyState extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════
-// QUICK ACTION BUTTON — used for "Log BP", "Log Water" etc.
+// QUICK ACTION BUTTON
 // ════════════════════════════════════════════════════════════
 class QuickActionButton extends StatelessWidget {
   final String emoji;
@@ -292,7 +495,13 @@ class QuickActionButton extends StatelessWidget {
   final Color color;
   final VoidCallback onTap;
 
-  const QuickActionButton({super.key, required this.emoji, required this.label, required this.color, required this.onTap});
+  const QuickActionButton({
+    super.key,
+    required this.emoji,
+    required this.label,
+    required this.color,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -309,7 +518,15 @@ class QuickActionButton extends StatelessWidget {
           children: [
             Text(emoji, style: const TextStyle(fontSize: 24)),
             const SizedBox(height: 6),
-            Text(label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: color), textAlign: TextAlign.center),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
+              textAlign: TextAlign.center,
+            ),
           ],
         ),
       ),
@@ -318,18 +535,37 @@ class QuickActionButton extends StatelessWidget {
 }
 
 // ════════════════════════════════════════════════════════════
-// CONFIRM DIALOG helper
+// CONFIRM DIALOG
 // ════════════════════════════════════════════════════════════
-Future<bool> showConfirmDialog(BuildContext context, String title, String message) async {
+Future<bool> showConfirmDialog(
+  BuildContext context,
+  String title,
+  String message,
+) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(title, style: const TextStyle(fontFamily: 'Fraunces', fontWeight: FontWeight.bold)),
+      title: Text(
+        title,
+        style: const TextStyle(fontFamily: 'Fraunces', fontWeight: FontWeight.bold),
+      ),
       content: Text(message),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-        TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Confirm', style: TextStyle(color: AppColors.danger, fontWeight: FontWeight.bold))),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text(
+            'Confirm',
+            style: TextStyle(
+              color: AppColors.danger,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
       ],
     ),
   );
