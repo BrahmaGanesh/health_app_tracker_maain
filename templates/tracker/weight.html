@@ -733,39 +733,39 @@
       </thead>
       <tbody>
         {% set ns = namespace(prev=none) %}
-        {% for r in history %}
-        {% set curr = r.value_1 %}
-        <tr>
-          <td>
-            <div style="font-weight:600;">{{ r.recorded_at.strftime('%d %b %Y') }}</div>
-            <div style="font-size:11px;color:var(--text-muted);">{{ r.recorded_at.strftime('%I:%M %p') }}</div>
-          </td>
-          <td style="font-family:'DM Mono',monospace;font-size:16px;font-weight:600;color:var(--violet);">{{ curr }}kg</td>
-          <td style="font-family:'DM Mono',monospace;font-size:14px;">
-            {% if current_user.health_profile and current_user.health_profile.height_cm %}
-              {% set h = current_user.health_profile.height_cm / 100 %}
-              {{ (curr / (h*h))|round(1) }}
-            {% else %}—{% endif %}
-          </td>
-          <td>
-            {% if ns.prev is not none %}
-              {% set chg = (curr - ns.prev)|round(1) %}
-              <span class="wt-change {% if chg < 0 %}loss{% elif chg > 0 %}gain{% endif %}">
-                {{ '+' if chg > 0 else '' }}{{ chg }}kg
-              </span>
-            {% else %}—{% endif %}
-          </td>
-          <td style="font-size:13px;color:var(--text-muted);">{{ r.notes or '—' }}</td>
-          <td>
-            <a href="{{ url_for('tracker.delete_metric', metric_id=r.id) }}"
-               class="del-btn"
-               onclick="return confirm('Delete this entry?')">
-              <i class="bi bi-trash"></i>
-            </a>
-          </td>
-        </tr>
-        {% set ns.prev = curr %}
-        {% endfor %}
+{% for r in history %}
+{% set curr = r.value_1 %}
+<tr>
+  <td>
+    <div style="font-weight:600;">{{ r.recorded_at.strftime('%d %b %Y') }}</div>
+    <div style="font-size:11px;color:var(--text-muted);">{{ r.recorded_at.strftime('%I:%M %p') }}</div>
+  </td>
+  <td style="font-family:'DM Mono',monospace;font-size:16px;font-weight:600;color:var(--violet);">{{ curr }}kg</td>
+  <td style="font-family:'DM Mono',monospace;font-size:14px;">
+    {% if current_user.health_profile and current_user.health_profile.height_cm %}
+      {% set h = current_user.health_profile.height_cm / 100 %}
+      {{ (curr / (h*h))|round(1) }}
+    {% else %}—{% endif %}
+  </td>
+  <td>
+    {% if ns.prev is not none %}
+      {% set chg = (curr - ns.prev)|round(1) %}
+      <span class="wt-change {% if chg < 0 %}loss{% elif chg > 0 %}gain{% endif %}">
+        {{ '+' if chg > 0 else '' }}{{ chg }}kg
+      </span>
+    {% else %}—{% endif %}
+  </td>
+  <td style="font-size:13px;color:var(--text-muted);">{{ r.notes or '—' }}</td>
+  <td>
+    <a href="{{ url_for('tracker.delete_metric', metric_id=r.id) }}"
+       class="del-btn"
+       onclick="return confirm('Delete this entry?')">
+      <i class="bi bi-trash"></i>
+    </a>
+  </td>
+</tr>
+{% set ns.prev = curr %}
+{% endfor %}
       </tbody>
     </table>
   </div>

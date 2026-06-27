@@ -113,6 +113,7 @@
     <div class="card-hdr"><div class="card-title">➕ Log Exercise</div></div>
     <div class="card-body">
       <form method="POST" action="{{ url_for('exercise.log_exercise') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-g">
           <label class="fl">Exercise Name</label>
           <input type="text" name="exercise_name" class="fi" placeholder="e.g. Morning Walk" required>

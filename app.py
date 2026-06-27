@@ -3,6 +3,11 @@ from flask import Flask, render_template, jsonify, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 from config import get_config
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+print(f"IST Time: {datetime.now(ZoneInfo('Asia/Kolkata'))}")
+
 from extensions import (
     db, bcrypt, login_manager, migrate, mail,
     cache, cors, jwt, csrf

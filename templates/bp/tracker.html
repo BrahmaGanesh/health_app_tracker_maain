@@ -593,7 +593,7 @@
       <div class="sc-val red">{{ latest.value_1|int }}/{{ latest.value_2|int }}</div>
       <div class="sc-sub">
         Pulse: <strong>{{ latest.value_3|int if latest.value_3 else '—' }}</strong> bpm ·
-        {{ latest.recorded_datetime_display }}
+        {{ latest.recorded_at.strftime('%d %b %I:%M %p') }}
       </div>
       <span class="bp-badge {{ 'normal' if latest_status == 'Normal' else ('elevated' if latest_status == 'Elevated' else ('critical' if latest_status == 'Crisis' else 'high')) }}">
         {% if latest_status == 'Normal' %}✅{% elif latest_status == 'Elevated' %}⚠️{% else %}🔴{% endif %}
@@ -794,8 +794,8 @@
                         else ('critical' if status_text == 'Crisis' else 'high')) %}
         <tr>
           <td>
-            <div style="font-weight:600; font-size:14px;">{{ r.recorded_date }}</div>
-            <div style="font-size:11px; color:var(--text-muted);">{{ r.recorded_time }}</div>
+            <div style="font-weight:600; font-size:14px;">{{ r.recorded_at.strftime('%d %b %Y') }}</div>
+            <div style="font-size:11px; color:var(--text-muted);">{{ r.recorded_at.strftime('%I:%M %p') }}</div>
           </td>
           <td>
             <span class="bp-reading-combined {% if r.value_1 >= 160 %}high{% endif %}">

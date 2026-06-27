@@ -406,6 +406,7 @@
 
         <form method="POST" action="{{ url_for('exercise.log_steps') }}" id="stepsForm">
             <form method="POST" action="{{ url_for('exercise.log_exercise') }}"></form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <label class="fl">Custom Step Count</label>
           <input type="number" name="steps" id="stepsInput" class="fi"
                  placeholder="Enter steps..." min="0" max="100000"
