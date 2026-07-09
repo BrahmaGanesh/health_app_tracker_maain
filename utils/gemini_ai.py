@@ -1,3 +1,4 @@
+print("######## GEMINI FILE LOADED ########")
 import os
 import google.generativeai as genai
 
