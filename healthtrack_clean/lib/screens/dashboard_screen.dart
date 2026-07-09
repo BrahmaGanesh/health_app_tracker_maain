@@ -1,3 +1,4 @@
+// lib/screens/dashboard_screen.dart — Advanced Dashboard UI + Dark Mode
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../constants/app_theme.dart';
@@ -6,7 +7,7 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/step_tracking_service.dart';
 import '../widgets/bottom_nav.dart';
-import '../widgets/common_widgets.dart' hide AppBottomNav;
+import '../widgets/common_widgets.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -326,18 +327,24 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
   // ══════════════════════════════════════════════════════════════
   Widget _buildQuickActions() {
     final actions = [
-      ('❤️', 'BP',        AppColors.danger,   '/bp'),
-      ('💧', 'Water',     AppColors.water,    '/water'),
-      ('⚖️', 'Weight',    AppColors.violet,   '/weight'),
-      ('😴', 'Sleep',     AppColors.sleep,    '/sleep'),
-      ('🏃', 'Exercise',  AppColors.exercise, '/exercise'),
-      ('🩺', 'Sugar',     AppColors.sugar,    '/sugar'),
-      ('📊', 'Reports',   AppColors.sage,     '/reports'),
-      ('🗂️', 'Docs',     AppColors.document, '/documents'),
-      ('⏰', 'Reminders', AppColors.gold,     '/reminders'),
+      ('❤️', 'BP',          AppColors.danger,    '/bp'),
+      ('💧', 'Water',        AppColors.water,     '/water'),
+      ('⚖️', 'Weight',       AppColors.violet,    '/weight'),
+      ('😴', 'Sleep',        AppColors.sleep,     '/sleep'),
+      ('🩺', 'Sugar',        AppColors.sugar,     '/sugar'),
+      ('💊', 'Medicines',    AppColors.medicine,  '/medicines'),
+      ('🧪', 'Lab Tests',    AppColors.warning,   '/lab-tests'),
+      ('📅', 'Appointments', AppColors.info,      '/appointments'),
+      ('🏃', 'Exercise',     AppColors.exercise,  '/exercise'),
+      ('🤖', 'AI Assist',    AppColors.sage,      '/ai'),
+      ('📋', 'Timeline',     AppColors.navy,      '/timeline'),
+      ('🚨', 'Emergency',    AppColors.danger,    '/emergency'),
+      ('⏰', 'Reminders',    AppColors.gold,      '/reminders'),
+      ('📊', 'Reports',      AppColors.sage,      '/reports'),
+      ('💎', 'Plans',        AppColors.violet,    '/plans'),
     ];
     return SizedBox(
-      height: 80,
+      height: 82,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: actions.length,

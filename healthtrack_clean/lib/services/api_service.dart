@@ -1,10 +1,11 @@
 // ============================================================
-// lib/services/api_service.dart — Central API Client
-// All /api/v1/* calls go through here using Dio + JWT
+// lib/services/api_service.dart — HTTP API Client
+// Uses: http (no dio), shared_preferences (no flutter_secure_storage)
 // ============================================================
 
-import 'package:dio/dio.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../constants/app_theme.dart';
 
 class ApiResponse {
@@ -17,164 +18,132 @@ class ApiResponse {
 
   factory ApiResponse.fromJson(Map<String, dynamic> json, int statusCode) {
     return ApiResponse(
-      success: json['success'] ?? false,
-      message: json['message'] ?? '',
-      data: json['data'],
+      success:    json['success'] ?? false,
+      message:    json['message'] ?? '',
+      data:       json['data'],
       statusCode: statusCode,
     );
   }
 
-  factory ApiResponse.error(String message) {
-    return ApiResponse(success: false, message: message, statusCode: 0);
-  }
+  factory ApiResponse.error(String message) =>
+      ApiResponse(success: false, message: message, statusCode: 0);
 }
 
 class ApiService {
-  static final ApiService _instance = ApiService._internal();
-  factory ApiService() => _instance;
+  static final ApiService _i = ApiService._();
+  factory ApiService() => _i;
+  ApiService._();
 
-  late Dio _dio;
-  final _storage = const FlutterSecureStorage();
-
-  ApiService._internal() {
-    _dio = Dio(BaseOptions(
-      baseUrl: AppConfig.apiV1,
-      connectTimeout: const Duration(seconds: 60),
-      receiveTimeout: const Duration(seconds: 60),
-      headers: {'Content-Type': 'application/json'},
-    ));
-
-    // Attach JWT token to every request
-    _dio.interceptors.add(InterceptorsWrapper(
-      onRequest: (options, handler) async {
-        final token = await _storage.read(key: 'access_token');
-        if (token != null) {
-          options.headers['Authorization'] = 'Bearer $token';
-        }
-        return handler.next(options);
-      },
-      onError: (DioException error, handler) async {
-        // Auto-refresh token on 401
-        if (error.response?.statusCode == 401) {
-          final refreshed = await _refreshToken();
-          if (refreshed) {
-            final token = await _storage.read(key: 'access_token');
-            error.requestOptions.headers['Authorization'] = 'Bearer $token';
-            try {
-              final cloneReq = await _dio.fetch(error.requestOptions);
-              return handler.resolve(cloneReq);
-            } catch (e) {
-              return handler.next(error);
-            }
-          }
-        }
-        return handler.next(error);
-      },
-    ));
+  // ── Token helpers ─────────────────────────────────────────────
+  Future<String?> _getToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('access_token');
   }
 
-  Future<bool> _refreshToken() async {
+  Future<void> saveTokens(String access, String refresh) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('access_token', access);
+    await prefs.setString('refresh_token', refresh);
+  }
+
+  Future<void> clearTokens() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('access_token');
+    await prefs.remove('refresh_token');
+  }
+
+  Future<bool> hasToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final t = prefs.getString('access_token');
+    return t != null && t.isNotEmpty;
+  }
+
+  Map<String, String> _headers(String? token) {
+    final h = <String, String>{'Content-Type': 'application/json'};
+    if (token != null) h['Authorization'] = 'Bearer $token';
+    return h;
+  }
+
+  Uri _uri(String path, [Map<String, dynamic>? query]) {
+    final base = Uri.parse('${AppConfig.apiV1}$path');
+    if (query == null) return base;
+    return base.replace(queryParameters: query.map((k, v) => MapEntry(k, '$v')));
+  }
+
+  ApiResponse _parse(http.Response resp) {
     try {
-      final refreshToken = await _storage.read(key: 'refresh_token');
-      if (refreshToken == null) return false;
-
-      final dio = Dio(BaseOptions(baseUrl: AppConfig.apiV1));
-      final resp = await dio.post('/auth/refresh',
-          options: Options(headers: {'Authorization': 'Bearer $refreshToken'}));
-
-      if (resp.statusCode == 200 && resp.data['success'] == true) {
-        await _storage.write(key: 'access_token', value: resp.data['data']['access_token']);
-        return true;
-      }
-    } catch (e) {
-      return false;
+      final json = jsonDecode(resp.body) as Map<String, dynamic>;
+      return ApiResponse.fromJson(json, resp.statusCode);
+    } catch (_) {
+      return ApiResponse.error('Invalid server response (${resp.statusCode})');
     }
+  }
+
+  // ── Auto-refresh on 401 ───────────────────────────────────────
+  Future<bool> _refresh() async {
+    try {
+      final prefs  = await SharedPreferences.getInstance();
+      final rToken = prefs.getString('refresh_token');
+      if (rToken == null) return false;
+      final resp = await http.post(
+        _uri('/auth/refresh'),
+        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $rToken'},
+      );
+      if (resp.statusCode == 200) {
+        final json = jsonDecode(resp.body);
+        if (json['success'] == true) {
+          await prefs.setString('access_token', json['data']['access_token']);
+          return true;
+        }
+      }
+    } catch (_) {}
     return false;
   }
 
-  // ── Generic request handlers ──────────────────────────────────
-  Future<ApiResponse> get(String path, {Map<String, dynamic>? query}) async {
+  Future<ApiResponse> _request(Future<http.Response> Function(String? token) call) async {
     try {
-      final resp = await _dio.get(path, queryParameters: query);
-      return ApiResponse.fromJson(resp.data, resp.statusCode ?? 200);
+      String? token = await _getToken();
+      http.Response resp = await call(token);
+
+      // Auto-refresh on 401
+      if (resp.statusCode == 401) {
+        final ok = await _refresh();
+        if (ok) {
+          token = await _getToken();
+          resp = await call(token);
+        }
+      }
+
+      return _parse(resp);
+    } on http.ClientException catch (e) {
+      return ApiResponse.error('No internet connection: ${e.message}');
     } catch (e) {
-      return _handleError(e);
+      return ApiResponse.error('Network error: $e');
     }
   }
 
-  Future<ApiResponse> post(String path, {dynamic data}) async {
-    try {
-      final resp = await _dio.post(path, data: data);
-      return ApiResponse.fromJson(resp.data, resp.statusCode ?? 200);
-    } catch (e) {
-      return _handleError(e);
-    }
-  }
+  // ── Core HTTP methods ─────────────────────────────────────────
+  Future<ApiResponse> get(String path, {Map<String, dynamic>? query}) =>
+      _request((token) => http.get(_uri(path, query), headers: _headers(token)));
 
-  Future<ApiResponse> put(String path, {dynamic data}) async {
-    try {
-      final resp = await _dio.put(path, data: data);
-      return ApiResponse.fromJson(resp.data, resp.statusCode ?? 200);
-    } catch (e) {
-      return _handleError(e);
-    }
-  }
+  Future<ApiResponse> post(String path, {dynamic data}) =>
+      _request((token) => http.post(_uri(path), headers: _headers(token), body: jsonEncode(data ?? {})));
 
-  Future<ApiResponse> delete(String path) async {
-    try {
-      final resp = await _dio.delete(path);
-      return ApiResponse.fromJson(resp.data, resp.statusCode ?? 200);
-    } catch (e) {
-      return _handleError(e);
-    }
-  }
+  Future<ApiResponse> put(String path, {dynamic data}) =>
+      _request((token) => http.put(_uri(path), headers: _headers(token), body: jsonEncode(data ?? {})));
 
-   ApiResponse _handleError(dynamic e) {
-     print("====================");
-     print(e);
-     print(e.runtimeType);
+  Future<ApiResponse> delete(String path) =>
+      _request((token) => http.delete(_uri(path), headers: _headers(token)));
 
-     if (e is DioException) {
-       print("TYPE: ${e.type}");
-       print("MESSAGE: ${e.message}");
-       print("STATUS: ${e.response?.statusCode}");
-       print("BODY: ${e.response?.data}");
-
-       if (e.response?.data != null) {
-         return ApiResponse.error(e.response!.data.toString());
-       }
-
-       if (e.type == DioExceptionType.connectionTimeout ||
-           e.type == DioExceptionType.connectionError) {
-         return ApiResponse.error("No internet connection.");
-       }
-
-       return ApiResponse.error(
-           "HTTP ${e.response?.statusCode ?? 'Unknown'}");
-     }
-
-     return ApiResponse.error(e.toString());
-   }
-
-
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   // AUTH
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   Future<ApiResponse> register(String name, String email, String password) =>
       post('/auth/register', data: {'name': name, 'email': email, 'password': password});
 
-  Future<ApiResponse> login(String email, String password, {String? fcmToken}) {
-    print("LOGIN URL: ${AppConfig.apiV1}/auth/login");
+  Future<ApiResponse> login(String email, String password, {String? fcmToken}) =>
+      post('/auth/login', data: {'email': email, 'password': password, 'fcm_token': fcmToken ?? ''});
 
-    return post(
-      '/auth/login',
-      data: {
-        'email': email,
-        'password': password,
-        'fcm_token': fcmToken,
-      },
-    );
-  }
   Future<ApiResponse> getMe() => get('/auth/me');
 
   Future<ApiResponse> updateFcmToken(String token) =>
@@ -186,28 +155,27 @@ class ApiService {
   Future<ApiResponse> resetPassword(String email, String token, String password) =>
       post('/auth/reset-password', data: {'email': email, 'token': token, 'password': password});
 
-  Future<ApiResponse> changePassword(String currentPw, String newPw) =>
-      post('/auth/change-password', data: {'current_password': currentPw, 'new_password': newPw});
+  Future<ApiResponse> changePassword(String cur, String nw) =>
+      post('/auth/change-password', data: {'current_password': cur, 'new_password': nw});
 
   Future<ApiResponse> logout() => post('/auth/logout');
 
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   // DASHBOARD
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   Future<ApiResponse> getDashboard() => get('/dashboard/');
 
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   // TRACKERS
-  // ════════════════════════════════════════════════════════════
-  Future<ApiResponse> addBP(double systolic, double diastolic, {double? pulse, String? notes}) =>
-      post('/tracker/bp', data: {'systolic': systolic, 'diastolic': diastolic, 'pulse': pulse, 'notes': notes});
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> addBP(double sys, double dia, {double? pulse, String? notes}) =>
+      post('/tracker/bp', data: {'systolic': sys, 'diastolic': dia, 'pulse': pulse, 'notes': notes});
 
   Future<ApiResponse> getBP({int days = 7}) => get('/tracker/bp', query: {'days': days});
-
   Future<ApiResponse> deleteBP(int id) => delete('/tracker/bp/$id');
 
-  Future<ApiResponse> addWeight(double weightKg, {String? notes}) =>
-      post('/tracker/weight', data: {'weight_kg': weightKg, 'notes': notes});
+  Future<ApiResponse> addWeight(double kg, {String? notes}) =>
+      post('/tracker/weight', data: {'weight_kg': kg, 'notes': notes});
 
   Future<ApiResponse> getWeight({int days = 30}) => get('/tracker/weight', query: {'days': days});
 
@@ -221,13 +189,12 @@ class ApiService {
 
   Future<ApiResponse> getSugar({int days = 30}) => get('/tracker/sugar', query: {'days': days});
 
-  Future<ApiResponse> addSleep({
-    String? sleepTime, String? wakeTime, double? durationHours,
-    int? quality, int? interruptions, String? moodOnWake, String? notes,
-  }) => post('/tracker/sleep', data: {
-        'sleep_time': sleepTime, 'wake_time': wakeTime, 'duration_hours': durationHours,
-        'quality': quality, 'interruptions': interruptions,
-        'mood_on_wake': moodOnWake, 'notes': notes,
+  Future<ApiResponse> addSleep({String? sleepTime, String? wakeTime, double? durationHours,
+      int? quality, int? interruptions, String? moodOnWake, String? notes}) =>
+      post('/tracker/sleep', data: {
+        'sleep_time': sleepTime, 'wake_time': wakeTime,
+        'duration_hours': durationHours, 'quality': quality,
+        'interruptions': interruptions, 'mood_on_wake': moodOnWake, 'notes': notes,
       });
 
   Future<ApiResponse> getSleep({int days = 14}) => get('/tracker/sleep', query: {'days': days});
@@ -237,8 +204,8 @@ class ApiService {
 
   Future<ApiResponse> getSteps({int days = 7}) => get('/tracker/steps', query: {'days': days});
 
-  Future<ApiResponse> addHeartRate(int bpm, {String readingType = 'resting', String? notes}) =>
-      post('/tracker/heart-rate', data: {'bpm': bpm, 'reading_type': readingType, 'notes': notes});
+  Future<ApiResponse> addHeartRate(int bpm, {String type = 'resting', String? notes}) =>
+      post('/tracker/heart-rate', data: {'bpm': bpm, 'reading_type': type, 'notes': notes});
 
   Future<ApiResponse> getHeartRate({int days = 7}) => get('/tracker/heart-rate', query: {'days': days});
 
@@ -246,15 +213,15 @@ class ApiService {
 
   Future<ApiResponse> deleteMetric(String type, int id) => delete('/tracker/$type/$id');
 
-  // ════════════════════════════════════════════════════════════
-  // MEALS & RECIPES
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
+  // MEALS
+  // ═══════════════════════════════════════════════════════════
   Future<ApiResponse> getRecipes({String? search, String category = 'all', String goal = 'all', String diet = 'all', int page = 1}) =>
       get('/meals/recipes', query: {'search': search ?? '', 'category': category, 'goal': goal, 'diet': diet, 'page': page});
 
   Future<ApiResponse> getRecipe(int id) => get('/meals/recipes/$id');
 
-  Future<ApiResponse> toggleFavourite(int recipeId) => post('/meals/recipes/$recipeId/favourite');
+  Future<ApiResponse> toggleFavourite(int id) => post('/meals/recipes/$id/favourite');
 
   Future<ApiResponse> getFavourites() => get('/meals/favourites');
 
@@ -266,16 +233,15 @@ class ApiService {
 
   Future<ApiResponse> getGroceryList() => get('/meals/grocery');
 
-  Future<ApiResponse> toggleGroceryItem(int itemId) => post('/meals/grocery/$itemId/toggle');
+  Future<ApiResponse> toggleGroceryItem(int id) => post('/meals/grocery/$id/toggle');
 
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   // EXERCISE
-  // ════════════════════════════════════════════════════════════
-  Future<ApiResponse> logExercise({
-    required String exerciseName, String exerciseType = 'cardio',
-    int? durationMinutes, int? caloriesBurned, int? sets, int? reps,
-    double? distanceKm, String intensity = 'moderate', String? notes,
-  }) => post('/exercise/log', data: {
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> logExercise({required String exerciseName, String exerciseType = 'cardio',
+      int? durationMinutes, int? caloriesBurned, int? sets, int? reps, double? distanceKm,
+      String intensity = 'moderate', String? notes}) =>
+      post('/exercise/log', data: {
         'exercise_name': exerciseName, 'exercise_type': exerciseType,
         'duration_minutes': durationMinutes, 'calories_burned': caloriesBurned,
         'sets': sets, 'reps': reps, 'distance_km': distanceKm,
@@ -291,15 +257,15 @@ class ApiService {
 
   Future<ApiResponse> getBreathingConfig() => get('/exercise/breathing/config');
 
-  Future<ApiResponse> logBreathing(String exerciseId, int rounds, int durationSeconds) =>
-      post('/exercise/breathing/log', data: {'exercise_id': exerciseId, 'rounds_completed': rounds, 'duration_seconds': durationSeconds});
+  Future<ApiResponse> logBreathing(String id, int rounds, int durationSecs) =>
+      post('/exercise/breathing/log', data: {'exercise_id': id, 'rounds_completed': rounds, 'duration_seconds': durationSecs});
 
-  Future<ApiResponse> saveStopwatchSession(int durationSeconds, String exerciseName, String exerciseType) =>
-      post('/exercise/stopwatch/save', data: {'duration_seconds': durationSeconds, 'exercise_name': exerciseName, 'exercise_type': exerciseType});
+  Future<ApiResponse> saveStopwatchSession(int durationSecs, String name, String type) =>
+      post('/exercise/stopwatch/save', data: {'duration_seconds': durationSecs, 'exercise_name': name, 'exercise_type': type});
 
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   // NOTIFICATIONS & REMINDERS
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   Future<ApiResponse> getNotifications({bool unreadOnly = false, int page = 1}) =>
       get('/notifications/', query: {'unread_only': unreadOnly, 'page': page});
 
@@ -311,31 +277,35 @@ class ApiService {
 
   Future<ApiResponse> getReminders() => get('/notifications/reminders');
 
-  Future<ApiResponse> createReminder(Map<String, dynamic> data) => post('/notifications/reminders', data: data);
+  Future<ApiResponse> createReminder(Map<String, dynamic> data) =>
+      post('/notifications/reminders', data: data);
 
-  Future<ApiResponse> updateReminder(int id, Map<String, dynamic> data) => put('/notifications/reminders/$id', data: data);
+  Future<ApiResponse> updateReminder(int id, Map<String, dynamic> data) =>
+      put('/notifications/reminders/$id', data: data);
 
   Future<ApiResponse> deleteReminder(int id) => delete('/notifications/reminders/$id');
 
   Future<ApiResponse> markReminderDone(int id) => post('/notifications/reminders/$id/done');
 
-  Future<ApiResponse> snoozeReminder(int id, int minutes) =>
-      post('/notifications/reminders/$id/snooze', data: {'minutes': minutes});
+  Future<ApiResponse> snoozeReminder(int id, int mins) =>
+      post('/notifications/reminders/$id/snooze', data: {'minutes': mins});
 
   Future<ApiResponse> setupDefaultReminders() => post('/notifications/reminders/setup-defaults');
 
   Future<ApiResponse> sendTestNotification() => post('/notifications/test');
 
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   // FAMILY
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   Future<ApiResponse> getFamilyMembers() => get('/family/members');
 
   Future<ApiResponse> getFamilyMember(int id) => get('/family/members/$id');
 
-  Future<ApiResponse> addFamilyMember(Map<String, dynamic> data) => post('/family/members', data: data);
+  Future<ApiResponse> addFamilyMember(Map<String, dynamic> data) =>
+      post('/family/members', data: data);
 
-  Future<ApiResponse> updateFamilyMember(int id, Map<String, dynamic> data) => put('/family/members/$id', data: data);
+  Future<ApiResponse> updateFamilyMember(int id, Map<String, dynamic> data) =>
+      put('/family/members/$id', data: data);
 
   Future<ApiResponse> deleteFamilyMember(int id) => delete('/family/members/$id');
 
@@ -350,31 +320,155 @@ class ApiService {
 
   Future<ApiResponse> getFamilyDashboard() => get('/family/dashboard');
 
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   // REPORTS
-  // ════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════
   Future<ApiResponse> getEmailConfig() => get('/reports/email-config');
 
-  Future<ApiResponse> saveEmailConfig(Map<String, dynamic> data) => post('/reports/email-config', data: data);
+  Future<ApiResponse> saveEmailConfig(Map<String, dynamic> data) =>
+      post('/reports/email-config', data: data);
 
   Future<ApiResponse> sendReportNow({int periodDays = 7, List<String>? recipients}) =>
       post('/reports/send-now', data: {'period_days': periodDays, 'recipients': recipients});
 
   Future<ApiResponse> getReportHistory() => get('/reports/history');
 
-  // ── Token storage helpers ─────────────────────────────────────
-  Future<void> saveTokens(String accessToken, String refreshToken) async {
-    await _storage.write(key: 'access_token', value: accessToken);
-    await _storage.write(key: 'refresh_token', value: refreshToken);
-  }
+  // ═══════════════════════════════════════════════════════════
+  // MEDICINES (Module 4)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getMedicines({int? memberId}) =>
+      get('/medicines/', query: memberId != null ? {'member_id': memberId} : null);
 
-  Future<void> clearTokens() async {
-    await _storage.delete(key: 'access_token');
-    await _storage.delete(key: 'refresh_token');
-  }
+  Future<ApiResponse> addMedicine(Map<String, dynamic> data) => post('/medicines/', data: data);
 
-  Future<bool> hasToken() async {
-    final token = await _storage.read(key: 'access_token');
-    return token != null && token.isNotEmpty;
-  }
+  Future<ApiResponse> updateMedicine(int id, Map<String, dynamic> data) => put('/medicines/$id', data: data);
+
+  Future<ApiResponse> deleteMedicine(int id) => delete('/medicines/$id');
+
+  Future<ApiResponse> logMedicineTaken(int id, bool taken) =>
+      post('/medicines/$id/log', data: {'taken': taken});
+
+  Future<ApiResponse> getMedicineAdherence(int id, {int days = 30}) =>
+      get('/medicines/$id/adherence', query: {'days': days});
+
+  Future<ApiResponse> updateMedicineStock(int id, int count) =>
+      post('/medicines/$id/stock', data: {'stock_count': count});
+
+  // ═══════════════════════════════════════════════════════════
+  // LAB TESTS (Module 8)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getLabTests(String testType, {int? memberId}) =>
+      get('/lab-tests/', query: {'test_type': testType, if (memberId != null) 'member_id': memberId});
+
+  Future<ApiResponse> addLabTest(Map<String, dynamic> data) => post('/lab-tests/', data: data);
+
+  Future<ApiResponse> deleteLabTest(int id) => delete('/lab-tests/$id');
+
+  Future<ApiResponse> getLabTestTypes() => get('/lab-tests/types');
+
+  // ═══════════════════════════════════════════════════════════
+  // DOCTOR VISITS (Module 9)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getDoctorVisits({int? memberId}) =>
+      get('/doctor-visits/', query: memberId != null ? {'member_id': memberId} : null);
+
+  Future<ApiResponse> addDoctorVisit(Map<String, dynamic> data) => post('/doctor-visits/', data: data);
+
+  Future<ApiResponse> deleteDoctorVisit(int id) => delete('/doctor-visits/$id');
+
+  // ═══════════════════════════════════════════════════════════
+  // APPOINTMENTS (Module 10)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getAppointments({int? memberId, bool upcomingOnly = false}) =>
+      get('/appointments/', query: {if (memberId != null) 'member_id': memberId, 'upcoming': upcomingOnly});
+
+  Future<ApiResponse> addAppointment(Map<String, dynamic> data) => post('/appointments/', data: data);
+
+  Future<ApiResponse> updateAppointment(int id, Map<String, dynamic> data) => put('/appointments/$id', data: data);
+
+  Future<ApiResponse> deleteAppointment(int id) => delete('/appointments/$id');
+
+  Future<ApiResponse> markAppointmentDone(int id) => post('/appointments/$id/complete');
+
+  // ═══════════════════════════════════════════════════════════
+  // DOCUMENTS (Module 11)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getDocuments({String? docType, int? memberId}) =>
+      get('/documents/list', query: {if (docType != null) 'type': docType, if (memberId != null) 'member_id': memberId});
+
+  Future<ApiResponse> deleteDocument(int id) => delete('/documents/$id');
+
+  Future<ApiResponse> toggleDocumentImportant(int id) => post('/documents/$id/toggle-important');
+
+  // ═══════════════════════════════════════════════════════════
+  // HEALTH SCORE (Module 13)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getHealthScore({String? date}) =>
+      get('/health-score/', query: date != null ? {'date': date} : null);
+
+  Future<ApiResponse> getHealthScoreHistory({int days = 30}) =>
+      get('/health-score/history', query: {'days': days});
+
+  // ═══════════════════════════════════════════════════════════
+  // EMERGENCY CARD (Module 14)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getEmergencyCard({int? memberId}) =>
+      get('/emergency-card/', query: memberId != null ? {'member_id': memberId} : null);
+
+  Future<ApiResponse> updateEmergencyCard(Map<String, dynamic> data) =>
+      post('/emergency-card/', data: data);
+
+  // ═══════════════════════════════════════════════════════════
+  // HABITS (Module 3)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getHabits({int? memberId}) =>
+      get('/habits/', query: memberId != null ? {'member_id': memberId} : null);
+
+  Future<ApiResponse> addHabit(Map<String, dynamic> data) => post('/habits/', data: data);
+
+  Future<ApiResponse> logHabit(int id, bool completed, {double? value}) =>
+      post('/habits/$id/log', data: {'completed': completed, 'actual_value': value});
+
+  Future<ApiResponse> deleteHabit(int id) => delete('/habits/$id');
+
+  // ═══════════════════════════════════════════════════════════
+  // HEALTH TIMELINE (Module 20)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getTimeline({int? memberId, String? category, int page = 1}) =>
+      get('/timeline/', query: {if (memberId != null) 'member_id': memberId, if (category != null) 'category': category, 'page': page});
+
+  // ═══════════════════════════════════════════════════════════
+  // AI ASSISTANT (Module 19)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> sendAiMessage(String message, {List<Map<String, String>>? history}) =>
+      post('/ai-assistant/chat', data: {'message': message, 'history': history ?? []});
+
+  // ═══════════════════════════════════════════════════════════
+  // AI CAMERA (Module 6)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> analyzeFoodPhoto(String base64Image) =>
+      post('/ai-camera/food', data: {'image': base64Image});
+
+  Future<ApiResponse> analyzeMedicinePhoto(String base64Image) =>
+      post('/ai-camera/medicine', data: {'image': base64Image});
+
+  // ═══════════════════════════════════════════════════════════
+  // SUBSCRIPTION (Premium / Family plans)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getSubscriptionStatus() => get('/subscription/status');
+
+  Future<ApiResponse> verifyPurchase(String purchaseToken, String productId) =>
+      post('/subscription/verify', data: {'purchase_token': purchaseToken, 'product_id': productId});
+
+  Future<ApiResponse> cancelSubscription() => post('/subscription/cancel');
+
+  // ═══════════════════════════════════════════════════════════
+  // EMERGENCY ALERTS (Module 15)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getTrustedContacts() => get('/emergency-alerts/contacts');
+
+  Future<ApiResponse> addTrustedContact(Map<String, dynamic> data) =>
+      post('/emergency-alerts/contacts', data: data);
+
+  Future<ApiResponse> deleteTrustedContact(int id) => delete('/emergency-alerts/contacts/$id');
 }

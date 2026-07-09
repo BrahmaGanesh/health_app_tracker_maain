@@ -10,9 +10,12 @@ from sqlalchemy import func
 from extensions import db
 from models import (
     HealthMetric, MealPlan, MealItem, NutritionDailyLog,
-    Alert, WeeklyInsight, Medicine, MedicineLog,
+    Alert, WeeklyInsight,
     SleepLog, StepLog, DailyHealthScore
 )
+
+# Import new module models separately
+from models_new_modules import Medicine, MedicineLog
 
 dashboard_api_bp = Blueprint("dashboard_api", __name__)
 

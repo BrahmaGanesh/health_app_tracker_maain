@@ -887,46 +887,46 @@ class Alert(db.Model):
         }
 
 
-# ============================================================
-# MEDICINE SYSTEM
-# ============================================================
-
-class Medicine(db.Model):
-    __tablename__ = "medicines"
-    id          = db.Column(db.Integer, primary_key=True)
-    user_id     = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    name        = db.Column(db.String(200), nullable=False)
-    dosage      = db.Column(db.String(100), nullable=True)
-    timing      = db.Column(db.String(20), nullable=True)
-    frequency   = db.Column(db.String(30), default="daily")
-    with_food   = db.Column(db.String(20), default="doesn't_matter")
-    condition   = db.Column(db.String(100), nullable=True)
-    active      = db.Column(db.Boolean, default=True)
-    start_date  = db.Column(db.Date, default=date.today)
-    notes       = db.Column(db.Text, nullable=True)
-    created_at  = db.Column(db.DateTime, default=now_ist)
-    logs        = db.relationship("MedicineLog", backref="medicine", cascade="all, delete-orphan")
-
-    def to_dict(self):
-        return {
-            "id": self.id, "name": self.name, "dosage": self.dosage,
-            "timing": self.timing, "frequency": self.frequency,
-            "with_food": self.with_food, "condition": self.condition,
-            "active": self.active,
-        }
-
-
-class MedicineLog(db.Model):
-    __tablename__ = "medicine_logs"
-    id          = db.Column(db.Integer, primary_key=True)
-    medicine_id = db.Column(db.Integer, db.ForeignKey("medicines.id"), nullable=False)
-    user_id     = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    taken       = db.Column(db.Boolean, default=False)
-    log_date    = db.Column(db.Date, default=date.today, index=True)
-    logged_at   = db.Column(db.DateTime, default=now_ist)
-    notes       = db.Column(db.Text, nullable=True)
-    __table_args__ = (db.UniqueConstraint("medicine_id", "log_date"),)
-
+# # ============================================================
+# # MEDICINE SYSTEM
+# # ============================================================
+#
+# class Medicine(db.Model):
+#     __tablename__ = "medicines"
+#     id          = db.Column(db.Integer, primary_key=True)
+#     user_id     = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+#     name        = db.Column(db.String(200), nullable=False)
+#     dosage      = db.Column(db.String(100), nullable=True)
+#     timing      = db.Column(db.String(20), nullable=True)
+#     frequency   = db.Column(db.String(30), default="daily")
+#     with_food   = db.Column(db.String(20), default="doesn't_matter")
+#     condition   = db.Column(db.String(100), nullable=True)
+#     active      = db.Column(db.Boolean, default=True)
+#     start_date  = db.Column(db.Date, default=date.today)
+#     notes       = db.Column(db.Text, nullable=True)
+#     created_at  = db.Column(db.DateTime, default=now_ist)
+#     logs        = db.relationship("MedicineLog", backref="medicine", cascade="all, delete-orphan")
+#
+#     def to_dict(self):
+#         return {
+#             "id": self.id, "name": self.name, "dosage": self.dosage,
+#             "timing": self.timing, "frequency": self.frequency,
+#             "with_food": self.with_food, "condition": self.condition,
+#             "active": self.active,
+#         }
+#
+#
+# class MedicineLog(db.Model):
+#     __tablename__ = "medicine_logs"
+#     id          = db.Column(db.Integer, primary_key=True)
+#     medicine_id = db.Column(db.Integer, db.ForeignKey("medicines.id"), nullable=False)
+#     user_id     = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+#     taken       = db.Column(db.Boolean, default=False)
+#     log_date    = db.Column(db.Date, default=date.today, index=True)
+#     logged_at   = db.Column(db.DateTime, default=now_ist)
+#     notes       = db.Column(db.Text, nullable=True)
+#     __table_args__ = (db.UniqueConstraint("medicine_id", "log_date"),)
+#
 
 # ============================================================
 # DOCUMENT VAULT

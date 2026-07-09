@@ -19,10 +19,114 @@ class LocalDb {
 
   Future<Database> _open() async {
     final path = join(await getDatabasesPath(), 'healthtrack.db');
-    return openDatabase(path, version: 1, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    return openDatabase(path, version: 2, onCreate: _onCreate, onUpgrade: _onUpgrade);
   }
 
   Future<void> _onCreate(Database db, int version) async {
+    await _createCoreTables(db);
+    await _createModuleTables(db);
+  }
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await _createModuleTables(db);
+    }
+  }
+
+  /// Tables for Module 4, 8, 9, 10, 16: Medicine, Lab Tests,
+  /// Doctor Visits, Appointments, Family, Habits, Emergency Card
+  Future<void> _createModuleTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS medicines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
+        name TEXT, dosage TEXT, timing TEXT, frequency TEXT,
+        with_food TEXT, condition_name TEXT, active INTEGER DEFAULT 1,
+        stock_count INTEGER DEFAULT 0, low_stock_alert INTEGER DEFAULT 5,
+        member_id INTEGER, synced INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS medicine_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        medicine_id INTEGER, log_date TEXT, taken INTEGER DEFAULT 0,
+        logged_at TEXT, synced INTEGER DEFAULT 0,
+        UNIQUE(medicine_id, log_date)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS lab_tests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
+        test_type TEXT, value REAL, unit TEXT,
+        lab_name TEXT, test_date TEXT, notes TEXT,
+        member_id INTEGER, synced INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS doctor_visits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
+        visit_date TEXT, doctor_name TEXT, hospital TEXT,
+        diagnosis TEXT, prescription TEXT, follow_up_date TEXT,
+        member_id INTEGER, synced INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS appointments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
+        title TEXT, appointment_type TEXT, appointment_date TEXT,
+        appointment_time TEXT, location TEXT, notes TEXT,
+        completed INTEGER DEFAULT 0, member_id INTEGER, synced INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS family_members_cache (
+        id INTEGER PRIMARY KEY, name TEXT, relation TEXT,
+        gender TEXT, dob TEXT, blood_group TEXT,
+        height_cm REAL, weight_kg REAL, conditions_json TEXT,
+        photo_path TEXT, is_primary INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS habits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
+        name TEXT, category TEXT, target_value REAL, unit TEXT,
+        member_id INTEGER, synced INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS habit_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        habit_id INTEGER, log_date TEXT, completed INTEGER DEFAULT 0,
+        actual_value REAL, synced INTEGER DEFAULT 0,
+        UNIQUE(habit_id, log_date)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS emergency_card (
+        member_id INTEGER PRIMARY KEY,
+        blood_group TEXT, allergies TEXT, conditions TEXT,
+        medicines TEXT, emergency_contacts TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS health_timeline (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_type TEXT, event_date TEXT, title TEXT,
+        description TEXT, icon TEXT, member_id INTEGER
+      )
+    ''');
+  }
+
+  /// Original core tables: metrics, step_days, sync_queue, reminders, app_cache
+  Future<void> _createCoreTables(Database db) async {
     // ── Metrics (BP, weight, water, sugar, steps, sleep, heart rate) ──
     await db.execute('''
       CREATE TABLE metrics (
@@ -100,8 +204,6 @@ class LocalDb {
     ''');
   }
 
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {}
-
   // ════════════════════════════════════════════════════════════════
   // METRICS
   // ════════════════════════════════════════════════════════════════
@@ -166,17 +268,28 @@ class LocalDb {
     return rows.isNotEmpty ? rows.first : null;
   }
 
-  Future<void> upsertTodaySteps(int steps, int goal) async {
+  Future<void> upsertTodaySteps({
+    required int steps,
+    required int goal,
+    required double distanceKm,
+  }) async {
     final d = await db;
+
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    final h = goal > 0 ? steps / goal : 0;
-    final strideM = 0.00076; // avg stride 76cm
-    final distKm  = double.parse((steps * strideM).toStringAsFixed(2));
     final calories = (steps * 0.04).toInt();
-    await d.insert('step_days', {
-      'date': today, 'steps': steps, 'distance_km': distKm,
-      'calories': calories, 'goal': goal, 'synced': 0,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+    await d.insert(
+      'step_days',
+      {
+        'date': today,
+        'steps': steps,
+        'distance_km': distanceKm,
+        'calories': calories,
+        'goal': goal,
+        'synced': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   /// Returns last N days of step data
@@ -184,6 +297,18 @@ class LocalDb {
     final d = await db;
     final since = DateTime.now().subtract(Duration(days: days - 1)).toIso8601String().substring(0, 10);
     return d.query('step_days', where: 'date>=?', whereArgs: [since], orderBy: 'date ASC');
+  }
+  Future<Map<String, dynamic>?> getStepsByDate(String date) async {
+    final d = await db;
+
+    final rows = await d.query(
+      'step_days',
+      where: 'date = ?',
+      whereArgs: [date],
+      limit: 1,
+    );
+
+    return rows.isNotEmpty ? rows.first : null;
   }
 
   Future<List<Map<String, dynamic>>> getUnsyncedSteps() async {
@@ -278,5 +403,230 @@ class LocalDb {
   Future<void> clearCache() async {
     final d = await db;
     await d.delete('app_cache');
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // MEDICINES (Module 4)
+  // ════════════════════════════════════════════════════════════════
+  Future<int> saveMedicine(Map<String, dynamic> med) async {
+    final d = await db;
+    return d.insert('medicines', med, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getMedicines({int? memberId}) async {
+    final d = await db;
+    if (memberId != null) return d.query('medicines', where: 'member_id=? AND active=1', whereArgs: [memberId]);
+    return d.query('medicines', where: 'active=1');
+  }
+
+  Future<void> deleteMedicineLocal(int id) async {
+    final d = await db;
+    await d.update('medicines', {'active': 0}, where: 'id=?', whereArgs: [id]);
+  }
+
+  Future<void> updateMedicineStock(int id, int newStock) async {
+    final d = await db;
+    await d.update('medicines', {'stock_count': newStock}, where: 'id=?', whereArgs: [id]);
+  }
+
+  Future<void> logMedicineTaken(int medicineId, bool taken) async {
+    final d = await db;
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    await d.insert('medicine_logs', {
+      'medicine_id': medicineId, 'log_date': today, 'taken': taken ? 1 : 0,
+      'logged_at': DateTime.now().toIso8601String(), 'synced': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>?> getTodayMedicineLog(int medicineId) async {
+    final d = await db;
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final rows = await d.query('medicine_logs', where: 'medicine_id=? AND log_date=?', whereArgs: [medicineId, today]);
+    return rows.isNotEmpty ? rows.first : null;
+  }
+
+  Future<double> getMedicineAdherence(int medicineId, {int days = 30}) async {
+    final d = await db;
+    final since = DateTime.now().subtract(Duration(days: days)).toIso8601String().substring(0, 10);
+    final rows = await d.query('medicine_logs', where: 'medicine_id=? AND log_date>=?', whereArgs: [medicineId, since]);
+    if (rows.isEmpty) return 0;
+    final taken = rows.where((r) => r['taken'] == 1).length;
+    return (taken / rows.length) * 100;
+  }
+
+  Future<List<Map<String, dynamic>>> getMedicineLogsForMonth(int medicineId, int year, int month) async {
+    final d = await db;
+    final prefix = '$year-${month.toString().padLeft(2, '0')}';
+    return d.query('medicine_logs', where: "medicine_id=? AND log_date LIKE ?", whereArgs: [medicineId, '$prefix%']);
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // LAB TESTS (Module 8)
+  // ════════════════════════════════════════════════════════════════
+  Future<int> saveLabTest(Map<String, dynamic> test) async {
+    final d = await db;
+    return d.insert('lab_tests', test);
+  }
+
+  Future<List<Map<String, dynamic>>> getLabTests(String testType, {int? memberId}) async {
+    final d = await db;
+    if (memberId != null) {
+      return d.query('lab_tests', where: 'test_type=? AND member_id=?', whereArgs: [testType, memberId], orderBy: 'test_date DESC');
+    }
+    return d.query('lab_tests', where: 'test_type=?', whereArgs: [testType], orderBy: 'test_date DESC');
+  }
+
+  Future<List<String>> getDistinctLabTestTypes({int? memberId}) async {
+    final d = await db;
+    final rows = memberId != null
+        ? await d.query('lab_tests', columns: ['DISTINCT test_type'], where: 'member_id=?', whereArgs: [memberId])
+        : await d.query('lab_tests', columns: ['DISTINCT test_type']);
+    return rows.map((r) => r['test_type'] as String).toList();
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // DOCTOR VISITS (Module 9)
+  // ════════════════════════════════════════════════════════════════
+  Future<int> saveDoctorVisit(Map<String, dynamic> visit) async {
+    final d = await db;
+    return d.insert('doctor_visits', visit);
+  }
+
+  Future<List<Map<String, dynamic>>> getDoctorVisits({int? memberId}) async {
+    final d = await db;
+    if (memberId != null) return d.query('doctor_visits', where: 'member_id=?', whereArgs: [memberId], orderBy: 'visit_date DESC');
+    return d.query('doctor_visits', orderBy: 'visit_date DESC');
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // APPOINTMENTS (Module 10)
+  // ════════════════════════════════════════════════════════════════
+  Future<int> saveAppointment(Map<String, dynamic> appt) async {
+    final d = await db;
+    return d.insert('appointments', appt, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getUpcomingAppointments({int? memberId}) async {
+    final d = await db;
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    if (memberId != null) {
+      return d.query('appointments', where: 'appointment_date>=? AND completed=0 AND member_id=?', whereArgs: [today, memberId], orderBy: 'appointment_date ASC');
+    }
+    return d.query('appointments', where: 'appointment_date>=? AND completed=0', whereArgs: [today], orderBy: 'appointment_date ASC');
+  }
+
+  Future<List<Map<String, dynamic>>> getAllAppointments({int? memberId}) async {
+    final d = await db;
+    if (memberId != null) return d.query('appointments', where: 'member_id=?', whereArgs: [memberId], orderBy: 'appointment_date DESC');
+    return d.query('appointments', orderBy: 'appointment_date DESC');
+  }
+
+  Future<void> markAppointmentComplete(int id) async {
+    final d = await db;
+    await d.update('appointments', {'completed': 1}, where: 'id=?', whereArgs: [id]);
+  }
+
+  Future<void> deleteAppointmentLocal(int id) async {
+    final d = await db;
+    await d.delete('appointments', where: 'id=?', whereArgs: [id]);
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // FAMILY MEMBERS CACHE (Module 16)
+  // ════════════════════════════════════════════════════════════════
+  Future<void> cacheFamilyMember(Map<String, dynamic> member) async {
+    final d = await db;
+    await d.insert('family_members_cache', member, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<List<Map<String, dynamic>>> getCachedFamilyMembers() async {
+    final d = await db;
+    return d.query('family_members_cache');
+  }
+
+  Future<void> clearFamilyCache() async {
+    final d = await db;
+    await d.delete('family_members_cache');
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // HABITS (Module 3 — habit tracking)
+  // ════════════════════════════════════════════════════════════════
+  Future<int> saveHabit(Map<String, dynamic> habit) async {
+    final d = await db;
+    return d.insert('habits', habit);
+  }
+
+  Future<List<Map<String, dynamic>>> getHabits({int? memberId}) async {
+    final d = await db;
+    if (memberId != null) return d.query('habits', where: 'member_id=?', whereArgs: [memberId]);
+    return d.query('habits');
+  }
+
+  Future<void> logHabit(int habitId, bool completed, {double? actualValue}) async {
+    final d = await db;
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    await d.insert('habit_logs', {
+      'habit_id': habitId, 'log_date': today, 'completed': completed ? 1 : 0,
+      'actual_value': actualValue, 'synced': 0,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<bool> isHabitDoneToday(int habitId) async {
+    final d = await db;
+    final today = DateTime.now().toIso8601String().substring(0, 10);
+    final rows = await d.query('habit_logs', where: 'habit_id=? AND log_date=? AND completed=1', whereArgs: [habitId, today]);
+    return rows.isNotEmpty;
+  }
+
+  Future<int> getHabitStreak(int habitId) async {
+    final d = await db;
+    final rows = await d.query('habit_logs', where: 'habit_id=? AND completed=1', whereArgs: [habitId], orderBy: 'log_date DESC');
+    if (rows.isEmpty) return 0;
+    int streak = 0;
+    DateTime checkDate = DateTime.now();
+    for (final r in rows) {
+      final logDate = DateTime.parse(r['log_date'] as String);
+      final diff = checkDate.difference(logDate).inDays;
+      if (diff <= 1) { streak++; checkDate = logDate; } else { break; }
+    }
+    return streak;
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // EMERGENCY CARD (Module 14)
+  // ════════════════════════════════════════════════════════════════
+  Future<void> saveEmergencyCard(int memberId, Map<String, dynamic> data) async {
+    final d = await db;
+    await d.insert('emergency_card', {'member_id': memberId, ...data}, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<Map<String, dynamic>?> getEmergencyCard(int memberId) async {
+    final d = await db;
+    final rows = await d.query('emergency_card', where: 'member_id=?', whereArgs: [memberId]);
+    return rows.isNotEmpty ? rows.first : null;
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // HEALTH TIMELINE (Module 20)
+  // ════════════════════════════════════════════════════════════════
+  Future<void> addTimelineEvent({
+    required String eventType, required String eventDate, required String title,
+    String? description, String? icon, int? memberId,
+  }) async {
+    final d = await db;
+    await d.insert('health_timeline', {
+      'event_type': eventType, 'event_date': eventDate, 'title': title,
+      'description': description, 'icon': icon, 'member_id': memberId,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> getTimeline({int? memberId, String? category, int limit = 100}) async {
+    final d = await db;
+    String where = '1=1';
+    List<dynamic> args = [];
+    if (memberId != null) { where += ' AND member_id=?'; args.add(memberId); }
+    if (category != null) { where += ' AND event_type=?'; args.add(category); }
+    return d.query('health_timeline', where: where, whereArgs: args, orderBy: 'event_date DESC', limit: limit);
   }
 }

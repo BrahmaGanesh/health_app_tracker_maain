@@ -1,10 +1,16 @@
-import os
-from flask import Flask, render_template, jsonify, request
-from werkzeug.middleware.proxy_fix import ProxyFix
-from config import get_config
+# ============================================================
+# HEALTH TRACKER PLATFORM — FINAL COMPLETE MERGED VERSION
+# app.py — Flask Application Factory (Website + API for APK)
+# ============================================================
 
+import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+from flask import Flask, render_template, jsonify, request
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+from config import get_config
 
 print(f"IST Time: {datetime.now(ZoneInfo('Asia/Kolkata'))}")
 
@@ -12,6 +18,7 @@ from extensions import (
     db, bcrypt, login_manager, migrate, mail,
     cache, cors, jwt, csrf
 )
+
 
 # ------------------------------------------------------------
 # HELPER
@@ -27,12 +34,14 @@ def create_app(config_class=None):
     app = Flask(__name__)
 
     # Proxy fix (Render / deployment safe)
-    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1
+    )
 
     config_class = config_class or get_config()
     app.config.from_object(config_class)
 
-    # FIX: wrong usage of PREFERRED_URL_SCHEME (keep ONLY scheme, not full URL)
+    # Keep only scheme, not full URL
     app.config["PREFERRED_URL_SCHEME"] = "https"
 
     # --------------------------------------------------------
@@ -44,15 +53,25 @@ def create_app(config_class=None):
     migrate.init_app(app, db)
     mail.init_app(app)
     cache.init_app(app)
-
     jwt.init_app(app)
-    cors.init_app(app)
+
+    # CORS — allow APK / API access
+    cors.init_app(app, resources={
+        r"/api/*": {
+            "origins": "*",
+            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization", "X-CSRFToken"]
+        }
+    })
+
     csrf.init_app(app)
 
     # --------------------------------------------------------
     # LOGIN MANAGER
     # --------------------------------------------------------
     login_manager.login_view = "auth.login"
+    login_manager.login_message = "Please log in to access this page."
+    login_manager.login_message_category = "info"
     login_manager.session_protection = "strong"
 
     @login_manager.user_loader
@@ -73,8 +92,22 @@ def create_app(config_class=None):
         identity = jwt_data["sub"]
         return User.query.get(int(identity))
 
+    @jwt.unauthorized_loader
+    def unauthorized(reason):
+        return jsonify({
+            "error": "Authorization required",
+            "reason": reason
+        }), 401
+
+    @jwt.expired_token_loader
+    def expired_token(_header, _payload):
+        return jsonify({
+            "error": "Token expired",
+            "code": "TOKEN_EXPIRED"
+        }), 401
+
     # --------------------------------------------------------
-    # CSRF FIX (CLEAN + SAFE VERSION)
+    # CSRF FIX
     # --------------------------------------------------------
     @app.before_request
     def disable_csrf_for_api():
@@ -102,6 +135,8 @@ def create_app(config_class=None):
     from routes.document_routes import document_bp
     from routes.admin_routes import admin_bp
     from routes.notification_routes import notification_bp
+    # NEW: Business dashboard (subscriber + payment tracking)
+    from routes.business_routes import business_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
     app.register_blueprint(google_auth_bp)
@@ -121,6 +156,8 @@ def create_app(config_class=None):
     app.register_blueprint(document_bp, url_prefix="/documents")
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(notification_bp, url_prefix="/notifications")
+    # NEW: Business blueprint
+    app.register_blueprint(business_bp)  # /business/
 
     # --------------------------------------------------------
     # API BLUEPRINTS
@@ -133,8 +170,10 @@ def create_app(config_class=None):
     from routes.api.notification_api import notification_api_bp
     from routes.api.family_api import family_api_bp
     from routes.api.report_api import report_api_bp
+    from routes.api.medicine_api import medicine_api_bp
+    from routes.api.health_modules_api import modules_api_bp
 
-
+    # Exempt API blueprints from CSRF
     csrf.exempt(auth_api_bp)
     csrf.exempt(dashboard_api_bp)
     csrf.exempt(tracker_api_bp)
@@ -143,8 +182,9 @@ def create_app(config_class=None):
     csrf.exempt(notification_api_bp)
     csrf.exempt(family_api_bp)
     csrf.exempt(report_api_bp)
-
-
+    csrf.exempt(medicine_api_bp)
+    csrf.exempt(modules_api_bp)
+    csrf.exempt(google_auth_bp)
 
     app.register_blueprint(auth_api_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(dashboard_api_bp, url_prefix="/api/v1/dashboard")
@@ -154,6 +194,8 @@ def create_app(config_class=None):
     app.register_blueprint(notification_api_bp, url_prefix="/api/v1/notifications")
     app.register_blueprint(family_api_bp, url_prefix="/api/v1/family")
     app.register_blueprint(report_api_bp, url_prefix="/api/v1/reports")
+    app.register_blueprint(medicine_api_bp, url_prefix="/api/v1/medicines")
+    app.register_blueprint(modules_api_bp, url_prefix="/api/v1")
 
     # --------------------------------------------------------
     # GLOBAL TEMPLATE VARIABLES
@@ -191,6 +233,46 @@ def create_app(config_class=None):
         }
 
     # --------------------------------------------------------
+    # TEMPLATE FILTERS
+    # --------------------------------------------------------
+    @app.template_filter("datetime_format")
+    def datetime_format(value, fmt="%d %b %Y"):
+        if value is None:
+            return "—"
+        return value.strftime(fmt)
+
+    @app.template_filter("time_format")
+    def time_format(value):
+        if value is None:
+            return "—"
+        return value.strftime("%I:%M %p")
+
+    @app.template_filter("round2")
+    def round2(value):
+        try:
+            return round(float(value), 1)
+        except Exception:
+            return 0
+
+    @app.template_filter("bmi_status")
+    def bmi_status_filter(bmi):
+        if bmi is None:
+            return "Unknown"
+
+        bmi = float(bmi)
+        if bmi < 18.5:
+            return "Underweight"
+        elif bmi < 25.0:
+            return "Normal"
+        elif bmi < 30.0:
+            return "Overweight"
+        elif bmi < 35.0:
+            return "Obese I"
+        elif bmi < 40.0:
+            return "Obese II"
+        return "Obese III"
+
+    # --------------------------------------------------------
     # ERROR HANDLERS
     # --------------------------------------------------------
     @app.errorhandler(404)
@@ -222,18 +304,40 @@ def create_app(config_class=None):
             "version": app.config.get("APP_VERSION")
         })
 
-    # --------------------------------------------------------
-    # DB INIT
+        # --------------------------------------------------------
+    # DB INIT - IMPROVED TO PREVENT DUPLICATE TABLES
     # --------------------------------------------------------
     with app.app_context():
         try:
+            # Import models to register them with SQLAlchemy metadata
+            # This ensures all tables are known before creating them
+            from models import User  # noqa: F401
+            
+            # Import new modules - they reference User table
+            # Only import once to prevent duplicate table definitions
+            import sys
+            if 'models_new_modules' not in sys.modules:
+                from models_new_modules import (
+                    Medicine, MedicineLog,
+                    LabTest, DoctorVisit, Appointment,
+                    EmergencyCard, TrustedContact,
+                    Habit, HabitLog,
+                    UserSubscription, HealthTimelineEvent,
+                )
+            
+            # Create all tables at once
             db.create_all()
+            print("✓ Database initialized successfully")
+            
         except Exception as e:
             print("DB init error:", e)
 
     return app
 
 
+# ------------------------------------------------------------
+# ENTRY POINT
+# ------------------------------------------------------------
 app = create_app()
 
 if __name__ == "__main__":
