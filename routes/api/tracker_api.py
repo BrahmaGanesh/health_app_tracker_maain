@@ -40,7 +40,7 @@ def err(msg="Error", code=400):
 # ── HELPER: fire push alert for bad readings ──────────────────
 def _check_and_push(user, metric_type, value_1, value_2=None):
     """Auto-create alert and push notification for threshold violations."""
-    from utils.firebase_push import send_push
+    from utils.firebase_push import send_push_to_user
     from utils.reminder_engine import create_alert_notification
 
     if metric_type == "bp" and value_1 and value_2:
