@@ -12,7 +12,7 @@ def chat():
     data = request.get_json() or {}
     message = data.get("message", "")
 
-    result = ask_gemini(message)
+    result = ask_gemini(message, history)
 
     print(result)
 
