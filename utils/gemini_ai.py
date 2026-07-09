@@ -1,9 +1,14 @@
 import os
 import google.generativeai as genai
 
-genai.configure(
-    api_key=os.getenv("ANTHROPIC_API_KEY")
-)
+api_key = os.getenv("ANTHROPIC_API_KEY")
+
+genai.configure(api_key=api_key)
+
+print("=" * 50)
+print("GEMINI KEY FOUND:", api_key is not None)
+print("KEY LENGTH:", len(api_key) if api_key else 0)
+print("=" * 50)
 
 model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -36,6 +41,9 @@ User:
         }
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+
         return {
             "success": False,
             "reply": str(e)
