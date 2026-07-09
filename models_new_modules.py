@@ -249,6 +249,11 @@ class UserSubscription(db.Model):
     __tablename__ = "user_subscriptions"
     id              = db.Column(db.Integer, primary_key=True)
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
+    user = db.relationship(
+        "User",
+        backref=db.backref("subscription", uselist=False),
+        lazy=True
+    )
     plan            = db.Column(db.String(20), default="free")  # free / premium / family
     purchase_token  = db.Column(db.String(500), nullable=True)
     product_id      = db.Column(db.String(200), nullable=True)
