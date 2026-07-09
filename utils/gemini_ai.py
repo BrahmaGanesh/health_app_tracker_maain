@@ -6,10 +6,12 @@ api_key = os.getenv("ANTHROPIC_API_KEY")
 
 print("Gemini Key Loaded:", bool(api_key))
 
+
 genai.configure(api_key=api_key)
 print("=" * 50)
 print("GEMINI KEY:", os.getenv("ANTHROPIC_API_KEY"))
 print("=" * 50)
+
 
 model = genai.GenerativeModel("gemini-1.5-flash")
 
@@ -30,7 +32,7 @@ User Health Profile:
         history_context = ""
         if history and len(history) > 0:
             history_context = "\n".join([
-                f"{'User' if h['role']=='user' else 'Assistant'}: {h['content']}"
+                f"{'User' if h.get('role')=='user' else 'Assistant'}: {h.get('content', '')}"
                 for h in history[-5:]  # Last 5 messages
             ])
         
@@ -52,7 +54,7 @@ User: {message}
 HealthTrack AI:
 """
         
-        # ✅ Use correct SDK call (assuming you fixed the SDK issue)
+        # ✅ Use correct SDK call
         response = model.generate_content(prompt)
         
         print("Gemini Response:", response.text[:200])
