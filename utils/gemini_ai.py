@@ -6,6 +6,9 @@ api_key = os.getenv("ANTHROPIC_API_KEY")
 print("Gemini Key Loaded:", bool(api_key))
 
 genai.configure(api_key=api_key)
+print("=" * 50)
+print("GEMINI KEY:", os.getenv("GEMINI_API_KEY"))
+print("=" * 50)
 
 model = genai.GenerativeModel("gemini-1.5-flash")
 
