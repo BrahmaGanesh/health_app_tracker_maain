@@ -4,16 +4,20 @@
 # EXACT timestamps saved on every entry
 # ============================================================
 
+
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_current_user
 from datetime import datetime, date, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import func
 
+
 from extensions import db
 from models import HealthMetric, SleepLog, StepLog, HeartRateLog, Alert
 
+
 tracker_api_bp = Blueprint("tracker_api", __name__)
+
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -73,6 +77,7 @@ def _check_and_push(user, metric_type, value_1, value_2=None):
 # ════════════════════════════════════════════════════════════
 # BLOOD PRESSURE
 # ════════════════════════════════════════════════════════════
+
 
 @tracker_api_bp.route("/bp", methods=["POST"])
 @jwt_required()
@@ -175,6 +180,7 @@ def delete_bp(metric_id):
 # WEIGHT
 # ════════════════════════════════════════════════════════════
 
+
 @tracker_api_bp.route("/weight", methods=["POST"])
 @jwt_required()
 def add_weight():
@@ -251,6 +257,7 @@ def get_weight():
 # WATER
 # ════════════════════════════════════════════════════════════
 
+
 @tracker_api_bp.route("/water", methods=["POST"])
 @jwt_required()
 def add_water():
@@ -325,6 +332,7 @@ def get_water_today():
 # ════════════════════════════════════════════════════════════
 # BLOOD SUGAR
 # ════════════════════════════════════════════════════════════
+
 
 @tracker_api_bp.route("/sugar", methods=["POST"])
 @jwt_required()
@@ -408,6 +416,7 @@ def get_sugar():
 # ════════════════════════════════════════════════════════════
 # SLEEP
 # ════════════════════════════════════════════════════════════
+
 
 @tracker_api_bp.route("/sleep", methods=["POST"])
 @jwt_required()
@@ -496,6 +505,7 @@ def get_sleep():
 # STEPS
 # ════════════════════════════════════════════════════════════
 
+
 @tracker_api_bp.route("/steps", methods=["POST"])
 @jwt_required()
 def add_steps():
@@ -581,6 +591,7 @@ def get_steps():
 # HEART RATE
 # ════════════════════════════════════════════════════════════
 
+
 @tracker_api_bp.route("/heart-rate", methods=["POST"])
 @jwt_required()
 def add_heart_rate():
@@ -636,6 +647,7 @@ def get_heart_rate():
 # DELETE ANY METRIC
 # ════════════════════════════════════════════════════════════
 
+
 @tracker_api_bp.route("/<string:metric_type>/<int:metric_id>", methods=["DELETE"])
 @jwt_required()
 def delete_metric(metric_type, metric_id):
@@ -655,6 +667,7 @@ def delete_metric(metric_type, metric_id):
 # ════════════════════════════════════════════════════════════
 # SUMMARY (All metrics for dashboard)
 # ════════════════════════════════════════════════════════════
+
 
 @tracker_api_bp.route("/summary/today", methods=["GET"])
 @jwt_required()
@@ -717,3 +730,35 @@ def today_summary():
         "sleep": sleep_today.to_dict() if sleep_today else None,
         "sugar": latest_sugar.to_dict() if latest_sugar else None,
     })
+
+
+# ════════════════════════════════════════════════════════════
+# AI HEALTH CHAT
+# ════════════════════════════════════════════════════════════
+
+
+@tracker_api_bp.route("/ai/chat", methods=["POST"])
+@jwt_required()
+def ai_health_chat():
+    from utils.gemini_ai import ask_gemini
+    
+    user = get_current_user()
+    data = request.get_json() or {}
+    message = data.get("message", "")
+    
+    if not message:
+        return err("Message required", 422)
+    
+    # Extract conversation history
+    history = data.get("history", [])
+    
+    # Pass user context for personalized responses
+    response = ask_gemini(message, user=user, history=history)
+    
+    if response["success"]:
+        return ok({
+            "reply": response["reply"],
+            "user_message": message
+        })
+    else:
+        return err(response["reply"], 500)

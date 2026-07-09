@@ -172,6 +172,7 @@ def create_app(config_class=None):
     from routes.api.report_api import report_api_bp
     from routes.api.medicine_api import medicine_api_bp
     from routes.api.health_modules_api import modules_api_bp
+    from routes.api.ai_assistant_api import ai_bp
 
     # Exempt API blueprints from CSRF
     csrf.exempt(auth_api_bp)
@@ -184,6 +185,7 @@ def create_app(config_class=None):
     csrf.exempt(report_api_bp)
     csrf.exempt(medicine_api_bp)
     csrf.exempt(modules_api_bp)
+    csrf.exempt(ai_bp)
     csrf.exempt(google_auth_bp)
 
     app.register_blueprint(auth_api_bp, url_prefix="/api/v1/auth")
@@ -196,6 +198,7 @@ def create_app(config_class=None):
     app.register_blueprint(report_api_bp, url_prefix="/api/v1/reports")
     app.register_blueprint(medicine_api_bp, url_prefix="/api/v1/medicines")
     app.register_blueprint(modules_api_bp, url_prefix="/api/v1")
+    app.register_blueprint(ai_bp, url_prefix="/api/ai")
 
     # --------------------------------------------------------
     # GLOBAL TEMPLATE VARIABLES
