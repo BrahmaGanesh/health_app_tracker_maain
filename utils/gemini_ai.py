@@ -65,8 +65,10 @@ HealthTrack AI:
         }
         
     except Exception as e:
-        print("Gemini Error:", str(e))
+        import traceback
+        traceback.print_exc()
+
         return {
             "success": False,
-            "reply": f"AI service unavailable: {str(e)}"
+            "reply": str(e)
         }
