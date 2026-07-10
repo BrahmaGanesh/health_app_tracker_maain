@@ -8,12 +8,12 @@ from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 
-from app import db
+from extensions import db
 from models import (
     HealthMetric, MealPlan, MealItem, Recipe,
     NutritionDailyLog, Alert, WeeklyInsight,
-    Medicine, MedicineLog
 )
+from models_new_modules import ( MedicineLog,Medicine, UserSubscription )
 
 main_bp = Blueprint("main", __name__)
 
