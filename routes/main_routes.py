@@ -8,12 +8,12 @@ from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
 from sqlalchemy import func
 
-from extensions import db
+from app import db
 from models import (
     HealthMetric, MealPlan, MealItem, Recipe,
-    NutritionDailyLog, Alert, WeeklyInsight
+    NutritionDailyLog, Alert, WeeklyInsight,
+    Medicine, MedicineLog
 )
-from models_new_modules import Medicine, MedicineLog
 
 main_bp = Blueprint("main", __name__)
 
@@ -25,6 +25,9 @@ main_bp = Blueprint("main", __name__)
 @main_bp.route("/")
 def home():
     if current_user.is_authenticated:
+        # ── ADMIN → business/admin dashboard only ─────────────
+        if current_user.is_admin:
+            return redirect(url_for("business.dashboard"))
         if not current_user.onboarding_done:
             step = current_user.health_profile.onboarding_step if current_user.health_profile else 1
             return redirect(url_for(f"profile.onboarding_step{step}"))
@@ -39,6 +42,9 @@ def home():
 @main_bp.route("/dashboard")
 @login_required
 def dashboard():
+    # Admins never see the user dashboard — redirect to business panel
+    if current_user.is_admin:
+        return redirect(url_for("business.dashboard"))
     """
     Condition-specific dashboard.
     Collects all widgets needed based on user's health conditions.

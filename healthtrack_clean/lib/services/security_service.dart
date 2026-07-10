@@ -1,9 +1,5 @@
-// lib/services/security_service.dart
-// MODULE: Security First
-// Biometric/PIN lock, screenshot blocking, auto-lock, root detection
-
-import 'dart:async';
-import 'package:flutter/material.dart';
+// lib/services/security_service.dart — Fixed biometric + PIN (fully toggleable)
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -20,159 +16,155 @@ class SecurityService extends ChangeNotifier {
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
-  static const _pinKey         = 'app_pin_hash';
-  static const _biometricKey   = 'biometric_enabled';
-  static const _autoLockKey    = 'auto_lock_enabled';
-  static const _autoLockSecsKey= 'auto_lock_seconds';
+  static const _kPin      = 'ht_pin_hash';
+  static const _kBio      = 'ht_biometric';
+  static const _kAutoLock = 'ht_auto_lock';
+  static const _kAutoSecs = 'ht_auto_secs';
 
-  bool _isLocked        = true;
-  bool _biometricEnabled= false;
-  bool _hasPinSet       = false;
-  bool _autoLockEnabled = true;
-  int  _autoLockSeconds = 30;
-  DateTime? _lastBackgroundTime;
-  Timer? _autoLockTimer;
+  bool     _isLocked        = false;
+  bool     _biometricEnabled= false;
+  bool     _hasPinSet       = false;
+  bool     _autoLockEnabled = true;
+  int      _autoLockSeconds = 30;
+  DateTime? _lastBackground;
 
   bool get isLocked         => _isLocked;
   bool get biometricEnabled => _biometricEnabled;
   bool get hasPinSet        => _hasPinSet;
   bool get autoLockEnabled  => _autoLockEnabled;
   int  get autoLockSeconds  => _autoLockSeconds;
-  bool get hasAnyLock       => _biometricEnabled || _hasPinSet;
+  bool get hasAnyLock       => _hasPinSet || _biometricEnabled;
 
-  // ── INIT ──────────────────────────────────────────────────────
+  // ── INIT (called once at app start) ───────────────────────────
   Future<void> init() async {
-    final pin = await _storage.read(key: _pinKey);
-    _hasPinSet = pin != null && pin.isNotEmpty;
+    final pin  = await _storage.read(key: _kPin);
+    final bio  = await _storage.read(key: _kBio);
+    final al   = await _storage.read(key: _kAutoLock);
+    final secs = await _storage.read(key: _kAutoSecs);
 
-    final bio = await _storage.read(key: _biometricKey);
+    _hasPinSet        = (pin != null && pin.isNotEmpty);
     _biometricEnabled = bio == 'true';
+    _autoLockEnabled  = al != 'false';
+    _autoLockSeconds  = int.tryParse(secs ?? '30') ?? 30;
 
-    final autoLock = await _storage.read(key: _autoLockKey);
-    _autoLockEnabled = autoLock != 'false'; // default true
-
-    final secs = await _storage.read(key: _autoLockSecsKey);
-    _autoLockSeconds = int.tryParse(secs ?? '30') ?? 30;
-
-    _isLocked = hasAnyLock; // locked on launch if security enabled
+    // Only lock at startup if security is configured
+    _isLocked = hasAnyLock;
     notifyListeners();
   }
 
-  // ── BIOMETRIC CHECK ───────────────────────────────────────────
+  // ── BIOMETRIC AVAILABILITY ────────────────────────────────────
   Future<bool> isBiometricAvailable() async {
     try {
-      final canCheck = await _auth.canCheckBiometrics;
-      final isSupported = await _auth.isDeviceSupported();
+      final canCheck   = await _auth.canCheckBiometrics;
+      final isSupported= await _auth.isDeviceSupported();
       return canCheck && isSupported;
-    } catch (_) {
-      return false;
-    }
+    } catch (_) { return false; }
   }
 
   Future<List<BiometricType>> getAvailableBiometrics() async {
-    try {
-      return await _auth.getAvailableBiometrics();
-    } catch (_) {
-      return [];
-    }
+    try { return await _auth.getAvailableBiometrics(); }
+    catch (_) { return []; }
   }
 
-  Future<bool> authenticateWithBiometric({String reason = 'Authenticate to access HealthTrack'}) async {
+  // ── AUTHENTICATE WITH BIOMETRIC ───────────────────────────────
+  Future<bool> authenticateWithBiometric({String? reason}) async {
+    if (!_biometricEnabled) return false;
     try {
-      final result = await _auth.authenticate(
-        localizedReason: reason,
+      final ok = await _auth.authenticate(
+        localizedReason: reason ?? 'Authenticate to access HealthTrack',
         options: const AuthenticationOptions(
-          biometricOnly: false, // allow device PIN fallback too
+          biometricOnly: false, // allows device PIN/pattern as fallback
           stickyAuth: true,
+          useErrorDialogs: true,
         ),
       );
-      if (result) {
-        _isLocked = false;
-        notifyListeners();
-      }
-      return result;
+      if (ok) { _isLocked = false; notifyListeners(); }
+      return ok;
     } catch (e) {
-      debugPrint('[Security] Biometric auth error: $e');
+      debugPrint('[Security] Biometric error: $e');
       return false;
     }
   }
 
-  // ── ENABLE / DISABLE BIOMETRIC ──────────────────────────────
+  // ── ENABLE BIOMETRIC (user turns ON in settings) ──────────────
   Future<bool> enableBiometric() async {
     final available = await isBiometricAvailable();
     if (!available) return false;
 
-    final ok = await authenticateWithBiometric(reason: 'Confirm to enable biometric lock');
+    // Verify first before enabling
+    final ok = await _auth.authenticate(
+      localizedReason: 'Confirm fingerprint/face to enable biometric lock',
+      options: const AuthenticationOptions(biometricOnly: false, stickyAuth: true),
+    );
     if (ok) {
-      await _storage.write(key: _biometricKey, value: 'true');
+      await _storage.write(key: _kBio, value: 'true');
       _biometricEnabled = true;
       notifyListeners();
     }
     return ok;
   }
 
+  // ── DISABLE BIOMETRIC (user turns OFF in settings) ────────────
   Future<void> disableBiometric() async {
-    await _storage.write(key: _biometricKey, value: 'false');
+    await _storage.write(key: _kBio, value: 'false');
     _biometricEnabled = false;
+    // If PIN also not set, unlock the app
+    if (!_hasPinSet) _isLocked = false;
     notifyListeners();
   }
 
   // ── PIN MANAGEMENT ────────────────────────────────────────────
-  String _hashPin(String pin) => sha256.convert(utf8.encode(pin)).toString();
+  String _hash(String pin) => sha256.convert(utf8.encode(pin + 'ht_salt_2026')).toString();
 
   Future<void> setPin(String pin) async {
-    await _storage.write(key: _pinKey, value: _hashPin(pin));
+    await _storage.write(key: _kPin, value: _hash(pin));
     _hasPinSet = true;
+    _isLocked  = false; // don't lock right after setting PIN
     notifyListeners();
   }
 
   Future<bool> verifyPin(String pin) async {
-    final stored = await _storage.read(key: _pinKey);
+    final stored = await _storage.read(key: _kPin);
     if (stored == null) return false;
-    final ok = stored == _hashPin(pin);
-    if (ok) {
-      _isLocked = false;
-      notifyListeners();
-    }
+    final ok = stored == _hash(pin);
+    if (ok) { _isLocked = false; notifyListeners(); }
     return ok;
   }
 
   Future<void> removePin() async {
-    await _storage.delete(key: _pinKey);
+    await _storage.delete(key: _kPin);
     _hasPinSet = false;
+    if (!_biometricEnabled) _isLocked = false;
     notifyListeners();
   }
 
-  // ── AUTO-LOCK SETTINGS ─────────────────────────────────────────
+  // ── AUTO-LOCK SETTINGS ────────────────────────────────────────
   Future<void> setAutoLock(bool enabled, {int seconds = 30}) async {
     _autoLockEnabled = enabled;
     _autoLockSeconds = seconds;
-    await _storage.write(key: _autoLockKey, value: enabled.toString());
-    await _storage.write(key: _autoLockSecsKey, value: seconds.toString());
+    await _storage.write(key: _kAutoLock, value: enabled.toString());
+    await _storage.write(key: _kAutoSecs, value: seconds.toString());
     notifyListeners();
   }
 
-  // ── APP LIFECYCLE HOOKS ─────────────────────────────────────────
+  // ── APP LIFECYCLE ─────────────────────────────────────────────
   void onAppBackground() {
-    _lastBackgroundTime = DateTime.now();
+    _lastBackground = DateTime.now();
   }
 
   void onAppForeground() {
     if (!hasAnyLock || !_autoLockEnabled) return;
-    if (_lastBackgroundTime == null) return;
-
-    final elapsed = DateTime.now().difference(_lastBackgroundTime!).inSeconds;
+    if (_lastBackground == null) return;
+    final elapsed = DateTime.now().difference(_lastBackground!).inSeconds;
     if (elapsed >= _autoLockSeconds) {
       _isLocked = true;
       notifyListeners();
+      debugPrint('[Security] Auto-locked after ${elapsed}s');
     }
   }
 
   void lockNow() {
-    if (hasAnyLock) {
-      _isLocked = true;
-      notifyListeners();
-    }
+    if (hasAnyLock) { _isLocked = true; notifyListeners(); }
   }
 
   void unlock() {
@@ -180,35 +172,27 @@ class SecurityService extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ── SCREENSHOT / SCREEN RECORDING BLOCK ─────────────────────────
-  /// Call once at app startup — sets FLAG_SECURE on Android
-  /// Blocks screenshots, screen recording, and app-switcher thumbnail
+  // ── SCREENSHOT PROTECTION (FLAG_SECURE) ───────────────────────
   static Future<void> enableScreenProtection() async {
     try {
-      const channel = MethodChannel('com.healthtrack.app/security');
-      await channel.invokeMethod('enableSecureFlag');
-    } catch (e) {
-      debugPrint('[Security] Screen protection error: $e');
-    }
+      const ch = MethodChannel('com.healthtrack.app/security');
+      await ch.invokeMethod('enableSecureFlag');
+      debugPrint('[Security] Screenshot protection enabled');
+    } catch (e) { debugPrint('[Security] FLAG_SECURE error: $e'); }
   }
 
   static Future<void> disableScreenProtection() async {
     try {
-      const channel = MethodChannel('com.healthtrack.app/security');
-      await channel.invokeMethod('disableSecureFlag');
-    } catch (e) {
-      debugPrint('[Security] Screen protection disable error: $e');
-    }
+      const ch = MethodChannel('com.healthtrack.app/security');
+      await ch.invokeMethod('disableSecureFlag');
+    } catch (_) {}
   }
 
-  // ── ROOT / TAMPER DETECTION (basic checks) ───────────────────
+  // ── ROOT DETECTION ────────────────────────────────────────────
   static Future<bool> isDeviceRooted() async {
     try {
-      const channel = MethodChannel('com.healthtrack.app/security');
-      final result = await channel.invokeMethod<bool>('isDeviceRooted');
-      return result ?? false;
-    } catch (_) {
-      return false; // fail-safe: don't block user if check fails
-    }
+      const ch = MethodChannel('com.healthtrack.app/security');
+      return await ch.invokeMethod<bool>('isDeviceRooted') ?? false;
+    } catch (_) { return false; }
   }
 }

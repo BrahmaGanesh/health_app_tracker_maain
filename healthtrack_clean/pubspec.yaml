@@ -10,29 +10,22 @@ dependencies:
   flutter:
     sdk: flutter
 
-#  flutter_local_notifications: ^22.0.1
-  # API
   http: ^1.2.0
   dio: ^5.4.0
 
-  # State
-  provider: ^6.1.1
+  provider: ^6.1.2
 
-  # Storage
-  shared_preferences: ^2.2.2
+  shared_preferences: ^2.2.3
   flutter_secure_storage: ^10.3.1
 
-  # Firebase
   firebase_core: ^4.0.0
   firebase_messaging: ^16.0.0
 
   sqflite: ^2.3.3+1
   path: ^1.9.0
 
-  # Charts
   fl_chart: ^1.2.0
 
-  # UI
   cupertino_icons: ^1.0.6
   intl: ^0.20.2
   shimmer: ^3.0.0
@@ -42,35 +35,32 @@ dependencies:
   timeline_tile: ^2.0.0
   local_auth: ^2.3.0
 
-  # Audio
   audioplayers: ^6.0.0
 
-  # Pickers
   flutter_datetime_picker_plus: ^2.1.0
   image_picker: ^1.0.7
+  file_picker: ^10.3.2
 
-  # Permissions
   permission_handler: ^12.0.3
 
-  # Auth
   google_sign_in: 6.2.1
 
-  # Sensors
   pedometer: ^4.0.2
-
-  # Network
   connectivity_plus: ^7.1.1
 
+  flutter_local_notifications: ^19.4.0
+
 dev_dependencies:
-  flutter_launcher_icons: ^0.14.4
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter_launcher_icons:
   android: true
   ios: false
   image_path: "assets/images/logo.png"
+
 flutter:
   uses-material-design: true
 

@@ -15,6 +15,8 @@ import 'services/security_service.dart';
 import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/lock_screen.dart';
+import 'screens/ai_camera_screen.dart';
+import 'screens/onboarding_screen.dart';
 import 'screens/dashboard_screen.dart';
 import 'screens/bp_tracker_screen.dart';
 import 'screens/water_tracker_screen.dart';
@@ -36,6 +38,7 @@ import 'screens/emergency_card_screen.dart';
 import 'screens/timeline_screen.dart';
 import 'screens/ai_assistant_screen.dart';
 import 'screens/subscription_screen.dart';
+// import 'screens/pin_setup_screen.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
@@ -44,27 +47,42 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 // ════════════════════════════════════════════════════════════════
 class ThemeService extends ChangeNotifier {
   ThemeMode _mode = ThemeMode.system;
-  ThemeMode get mode  => _mode;
-  bool get isDark     => _mode == ThemeMode.dark;
 
-  ThemeService() { _load(); }
+  ThemeMode get mode => _mode;
+  bool get isDark => _mode == ThemeMode.dark;
+
+  ThemeService() {
+    _load();
+  }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final v = prefs.getString('theme_mode') ?? 'system';
-    _mode = v == 'dark' ? ThemeMode.dark : v == 'light' ? ThemeMode.light : ThemeMode.system;
+    _mode = v == 'dark'
+        ? ThemeMode.dark
+        : v == 'light'
+            ? ThemeMode.light
+            : ThemeMode.system;
     notifyListeners();
   }
 
   Future<void> setMode(ThemeMode mode) async {
     _mode = mode;
     notifyListeners();
+
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('theme_mode',
-        mode == ThemeMode.dark ? 'dark' : mode == ThemeMode.light ? 'light' : 'system');
+    await prefs.setString(
+      'theme_mode',
+      mode == ThemeMode.dark
+          ? 'dark'
+          : mode == ThemeMode.light
+              ? 'light'
+              : 'system',
+    );
   }
 
-  void toggle() => setMode(_mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark);
+  void toggle() =>
+      setMode(_mode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark);
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -92,21 +110,25 @@ Future<void> main() async {
   runApp(const HealthTrackApp());
 }
 
-// ════════════════════════════════════════════════════════════════
+// ══════════════════════════════���═════════════════════════════════
 // ROOT APP WIDGET — with lifecycle observer for auto-lock
 // ════════════════════════════════════════════════════════════════
 class HealthTrackApp extends StatefulWidget {
   const HealthTrackApp({super.key});
-  @override State<HealthTrackApp> createState() => _HealthTrackAppState();
+
+  @override
+  State<HealthTrackApp> createState() => _HealthTrackAppState();
 }
 
-class _HealthTrackAppState extends State<HealthTrackApp> with WidgetsBindingObserver {
+class _HealthTrackAppState extends State<HealthTrackApp>
+    with WidgetsBindingObserver {
   final _security = SecurityService();
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+
     // Block screenshots and screen recording (FLAG_SECURE)
     SecurityService.enableScreenProtection();
   }
@@ -146,7 +168,7 @@ class _HealthTrackAppState extends State<HealthTrackApp> with WidgetsBindingObse
           title: 'HealthTrack',
           navigatorKey: navigatorKey,
           debugShowCheckedModeBanner: false,
-          theme:     AppTheme.light(),
+          theme: AppTheme.light(),
           darkTheme: AppTheme.dark(),
           themeMode: theme.mode,
 
@@ -158,7 +180,9 @@ class _HealthTrackAppState extends State<HealthTrackApp> with WidgetsBindingObse
                 children: [
                   child!,
                   if (sec.isLocked && sec.hasAnyLock)
-                    LockScreen(onUnlocked: () => sec.unlock()),
+                    LockScreen(
+                      onUnlocked: () => sec.unlock(),
+                    ),
                 ],
               ),
             );
@@ -167,64 +191,70 @@ class _HealthTrackAppState extends State<HealthTrackApp> with WidgetsBindingObse
           // ── All routes ─────────────────────────────────────────
           routes: {
             // Core
-            '/':             (_) => const SplashScreen(),
-            '/login':        (_) => const LoginScreen(),
+            '/': (_) => const SplashScreen(),
+            '/login': (_) => const LoginScreen(),
 
             // Main screens
-            '/dashboard':    (_) => const DashboardScreen(),
-            '/profile':      (_) => const ProfileScreen(),
+            '/dashboard': (_) => const DashboardScreen(),
+            '/profile': (_) => const ProfileScreen(),
 
             // Health trackers
-            '/bp':           (_) => const BPTrackerScreen(),
-            '/water':        (_) => const WaterTrackerScreen(),
-            '/weight':       (_) => const WeightTrackerScreen(),
-            '/sleep':        (_) => const SleepTrackerScreen(),
-            '/sugar':        (_) => const SugarTrackerScreen(),
+            '/bp': (_) => const BPTrackerScreen(),
+            '/water': (_) => const WaterTrackerScreen(),
+            '/weight': (_) => const WeightTrackerScreen(),
+            '/sleep': (_) => const SleepTrackerScreen(),
+            '/sugar': (_) => const SugarTrackerScreen(),
 
             // Exercise & meals
-            '/exercise':     (_) => const ExerciseScreen(),
-            '/meals':        (_) => const MealScreen(),
+            '/exercise': (_) => const ExerciseScreen(),
+            '/meals': (_) => const MealScreen(),
 
             // Analytics
-            '/analytics':    (_) => const AnalyticsScreen(),
+            '/analytics': (_) => const AnalyticsScreen(),
 
             // Family
-            '/family':       (_) => const FamilyScreen(),
+            '/family': (_) => const FamilyScreen(),
 
             // Reminders & notifications
-            '/reminders':    (_) => const RemindersScreen(),
+            '/reminders': (_) => const RemindersScreen(),
 
             // Documents & reports
-            '/documents':    (_) => const DocumentsScreen(),
-            '/reports':      (_) => const ReportsScreen(),
+            '/documents': (_) => const DocumentsScreen(),
+            '/reports': (_) => const ReportsScreen(),
 
             // ── NEW MODULES ──────────────────────────────────────
 
             // Module 4: Medicine management
-            '/medicines':    (_) => const MedicineScreen(),
+            '/medicines': (_) => const MedicineScreen(),
 
             // Module 8: Lab test tracker
-            '/lab-tests':    (_) => const LabTestScreen(),
+            '/lab-tests': (_) => const LabTestScreen(),
 
             // Module 10: Appointment manager
             '/appointments': (_) => const AppointmentsScreen(),
 
             // Module 14: Emergency card (no auth needed when standalone)
-            '/emergency':    (_) => const EmergencyCardScreen(),
+            '/emergency': (_) => const EmergencyCardScreen(),
 
             // Module 20: Health timeline
-            '/timeline':     (_) => const TimelineScreen(),
+            '/timeline': (_) => const TimelineScreen(),
 
             // Module 19: AI assistant
-            '/ai':           (_) => const AiAssistantScreen(),
+            '/ai': (_) => const AiAssistantScreen(),
+
+            // AI Camera with on/off toggle
+            '/ai-camera': (_) => const AiCameraScreen(),
 
             // Subscription / plans
-            '/plans':        (_) => const SubscriptionScreen(),
+            '/plans': (_) => const SubscriptionScreen(),
+
+            // Onboarding (first-time setup)
+            '/onboarding': (_) => const OnboardingScreen(),
 
             // Security settings (accessed from profile)
             '/pin-setup': (ctx) => PinSetupScreen(
-              onDone: () => Navigator.of(ctx).pop(),
-            ),
+                  onDone: () => Navigator.of(ctx).pop(),
+                ),
           },
         ),
       ),
@@ -238,13 +268,27 @@ class _HealthTrackAppState extends State<HealthTrackApp> with WidgetsBindingObse
 void handleNotificationTap(Map<String, dynamic> data) {
   final state = navigatorKey.currentState;
   if (state == null) return;
+
   switch (data['type']) {
-    case 'reminder':    state.pushNamed('/reminders');   break;
-    case 'bp_alert':    state.pushNamed('/bp');          break;
-    case 'water':       state.pushNamed('/water');       break;
-    case 'medicine':    state.pushNamed('/medicines');   break;
-    case 'appointment': state.pushNamed('/appointments');break;
-    case 'lab':         state.pushNamed('/lab-tests');   break;
-    default:            state.pushNamed('/dashboard');
+    case 'reminder':
+      state.pushNamed('/reminders');
+      break;
+    case 'bp_alert':
+      state.pushNamed('/bp');
+      break;
+    case 'water':
+      state.pushNamed('/water');
+      break;
+    case 'medicine':
+      state.pushNamed('/medicines');
+      break;
+    case 'appointment':
+      state.pushNamed('/appointments');
+      break;
+    case 'lab':
+      state.pushNamed('/lab-tests');
+      break;
+    default:
+      state.pushNamed('/dashboard');
   }
 }

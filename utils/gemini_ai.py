@@ -2,14 +2,14 @@ print("######## GEMINI FILE LOADED ########")
 import os
 import google.generativeai as genai
 
-api_key = os.getenv("ANTHROPIC_API_KEY")
+api_key = os.getenv("GEMINI_API_KEY")
 
 print("Gemini Key Loaded:", bool(api_key))
 
 
 genai.configure(api_key=api_key)
 print("=" * 50)
-print("GEMINI KEY:", os.getenv("ANTHROPIC_API_KEY"))
+print("GEMINI KEY:", os.getenv("GEMINI_API_KEY"))
 print("=" * 50)
 
 
