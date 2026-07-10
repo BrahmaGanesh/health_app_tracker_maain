@@ -27,6 +27,7 @@ model = genai.GenerativeModel("gemini-1.5-flash")
 # ======================================================
 
 def ask_gemini(message, user=None, history=None):
+    print(">>>>>>>> ask_gemini() CALLED <<<<<<<<")
     try:
 
         print("\n========== GEMINI REQUEST ==========")
