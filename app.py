@@ -199,6 +199,7 @@ def create_app(config_class=None):
     app.register_blueprint(medicine_api_bp, url_prefix="/api/v1/medicines")
     app.register_blueprint(modules_api_bp, url_prefix="/api/v1")
     app.register_blueprint(ai_bp, url_prefix="/api/v1/ai-assistant")
+    app.register_blueprint(document_bp, url_prefix="/api/v1/documents")
 
     # --------------------------------------------------------
     # GLOBAL TEMPLATE VARIABLES
