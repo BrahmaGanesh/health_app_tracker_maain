@@ -10,16 +10,33 @@ import google.generativeai as genai
 
 api_key = os.getenv("GEMINI_API_KEY")
 
-if not api_key:
+print("=" * 60)
+print("Checking Gemini configuration...")
+
+if api_key:
+    print("✅ GEMINI_API_KEY FOUND")
+    print("API Key Prefix:", api_key[:10] + "...")
+else:
+    print("❌ GEMINI_API_KEY NOT FOUND")
     raise RuntimeError("GEMINI_API_KEY environment variable is not set.")
 
 genai.configure(api_key=api_key)
 
-print("=" * 50)
-print("Gemini API key loaded successfully.")
-print("=" * 50)
+print("✅ Gemini configured successfully")
+print("=" * 60)
 
-model = genai.GenerativeModel("gemini-flash-latest")
+# ======================================================
+# Model
+# ======================================================
+
+MODEL_NAME = "gemini-flash-latest"
+
+print(f"Loading Gemini model: {MODEL_NAME}")
+
+model = genai.GenerativeModel(MODEL_NAME)
+
+print("✅ Gemini model loaded")
+print("=" * 60)
 
 
 # ======================================================
@@ -27,53 +44,90 @@ model = genai.GenerativeModel("gemini-flash-latest")
 # ======================================================
 
 def ask_gemini(message, user=None, history=None):
-    print(">>>>>>>> ask_gemini() CALLED <<<<<<<<")
+
+    print("\n")
+    print("=" * 80)
+    print("ask_gemini() CALLED")
+    print("=" * 80)
+
     try:
 
-        print("\n========== GEMINI REQUEST ==========")
-        print("User Message:", message)
+        print("Incoming message:")
+        print(message)
 
-        # ---------------------------------------------
+        print("-" * 80)
+
+        # ------------------------------------------------
         # User Context
-        # ---------------------------------------------
+        # ------------------------------------------------
+
         user_context = ""
 
-        if user and getattr(user, "health_profile", None):
-            user_context = f"""
+        if user:
+
+            print("User ID:", getattr(user, "id", None))
+
+            hp = getattr(user, "health_profile", None)
+
+            if hp:
+
+                print("Health profile found.")
+
+                user_context = f"""
 User Health Profile:
-- Weight: {user.health_profile.current_weight_kg} kg
-- Height: {user.health_profile.height_cm} cm
-- BMI: {user.bmi}
+Weight: {hp.current_weight_kg} kg
+Height: {hp.height_cm} cm
+BMI: {user.bmi}
 """
 
-        # ---------------------------------------------
-        # Conversation History
-        # ---------------------------------------------
+            else:
+
+                print("No health profile.")
+
+        else:
+
+            print("No user object received.")
+
+        # ------------------------------------------------
+        # History
+        # ------------------------------------------------
+
         history_context = ""
 
         if history:
+
+            print("History messages:", len(history))
+
             history_context = "\n".join(
+
                 [
-                    f"{'User' if h.get('role') == 'user' else 'Assistant'}: {h.get('content','')}"
+                    f"{'User' if h.get('role')=='user' else 'Assistant'}: {h.get('content','')}"
                     for h in history[-5:]
                 ]
+
             )
 
-        # ---------------------------------------------
+        else:
+
+            print("No history received.")
+
+        # ------------------------------------------------
         # Prompt
-        # ---------------------------------------------
+        # ------------------------------------------------
+
         prompt = f"""
 You are HealthTrack AI.
 
-You answer ONLY health, fitness, nutrition and wellness questions.
+You answer ONLY health, nutrition, fitness and wellness questions.
 
-Keep replies between 2 and 4 sentences.
+Reply in short (2-4 sentences).
 
-If someone asks unrelated questions, politely refuse.
+If the user asks unrelated questions politely refuse.
 
 {user_context}
 
 Conversation History:
+
 {history_context}
 
 User:
@@ -82,34 +136,54 @@ User:
 HealthTrack AI:
 """
 
-        print("Calling Gemini API...")
+        print("-" * 80)
+        print("Calling Gemini...")
+        print("-" * 80)
 
-        # ---------------------------------------------
-        # Gemini Call
-        # ---------------------------------------------
         response = model.generate_content(prompt)
 
-        print("Gemini call completed.")
+        print("Gemini call SUCCESS")
 
-        print("Response object:", response)
+        print("-" * 80)
+        print("RAW RESPONSE")
+        print(response)
+        print("-" * 80)
 
-        print("Response text:")
-        print(response.text)
+        text = getattr(response, "text", None)
 
-        print("=====================================\n")
+        if not text:
+
+            print("❌ response.text is empty")
+
+            print("Candidates:", getattr(response, "candidates", None))
+
+            return {
+                "success": False,
+                "reply": "Gemini returned an empty response."
+            }
+
+        print("Response Length:", len(text))
+        print(text)
+
+        print("=" * 80)
 
         return {
             "success": True,
-            "reply": response.text
+            "reply": text
         }
 
     except Exception as e:
 
-        print("\n========== GEMINI ERROR ==========")
+        print("=" * 80)
+        print("GEMINI EXCEPTION")
+        print("=" * 80)
+
         traceback.print_exc()
+
+        print("-" * 80)
         print("Exception Type:", type(e).__name__)
         print("Exception:", str(e))
-        print("==================================\n")
+        print("-" * 80)
 
         return {
             "success": False,
