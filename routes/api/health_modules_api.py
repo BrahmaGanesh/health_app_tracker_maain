@@ -415,7 +415,7 @@ def timeline():
 # MODULE 19 — AI WELLNESS ASSISTANT
 # ════════════════════════════════════════════════════════════════
 
-@modules_api_bp.route("/ai-assistant/chat", methods=["POST"])
+@modules_api_bp.route("/cla ude/chat", methods=["POST"])
 @jwt_required()
 def ai_chat():
     uid = get_jwt_identity()
