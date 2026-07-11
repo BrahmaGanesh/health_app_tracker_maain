@@ -19,6 +19,25 @@ from models_new_modules import (
     HealthTimelineEvent,
 )
 
+import os
+import base64
+import json
+import re
+import google.generativeai as genai
+
+# =====================================================
+# Gemini Configuration
+# =====================================================
+
+api_key = os.getenv("GEMINI_API_KEY")
+
+if not api_key:
+    raise RuntimeError("GEMINI_API_KEY is not set.")
+
+genai.configure(api_key=api_key)
+
+vision_model = genai.GenerativeModel("gemini-flash-latest")
+
 modules_api_bp = Blueprint("modules_api", __name__)
 
 
@@ -475,97 +494,144 @@ health and wellness advice. Important rules:
 @modules_api_bp.route("/ai-camera/food", methods=["POST"])
 @jwt_required()
 def analyze_food():
+
     d = request.get_json() or {}
     image = d.get("image", "")
+
     if not image:
-        return jsonify({"success": False, "message": "image required"}), 400
+        return jsonify({
+            "success": False,
+            "message": "image required"
+        }), 400
 
     try:
-        import anthropic
-        import json
-        import re
 
-        client = anthropic.Anthropic(
-            api_key=current_app.config.get("ANTHROPIC_API_KEY", "")
+        # Remove data:image/jpeg;base64, if present
+        if "," in image:
+            image = image.split(",", 1)[1]
+
+        image_bytes = base64.b64decode(image)
+
+        prompt = """
+Analyze this food image.
+
+Return ONLY valid JSON.
+
+{
+    "food_name":"",
+    "calories":0,
+    "protein_g":0,
+    "carbs_g":0,
+    "fat_g":0,
+    "sodium_mg":0,
+    "is_healthy_for_bp":true,
+    "notes":""
+}
+"""
+
+        response = vision_model.generate_content(
+            [
+                prompt,
+                {
+                    "mime_type": "image/jpeg",
+                    "data": image_bytes
+                }
+            ]
         )
 
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=500,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": image
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": "Identify the food and estimate: calories, protein, carbs, fats, sodium. Return JSON: {food_name, calories, protein_g, carbs_g, fat_g, sodium_mg, is_healthy_for_bp (true/false), notes}"
-                    },
-                ]
-            }],
-        )
+        text = response.text
 
-        text = resp.content[0].text
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        data = json.loads(match.group()) if match else {"food_name": "Unknown", "calories": 0}
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+
+        if match:
+            data = json.loads(match.group())
+        else:
+            data = {
+                "food_name": "Unknown",
+                "notes": text
+            }
+
     except Exception as e:
-        data = {"food_name": "Analysis unavailable", "notes": str(e)}
 
-    return jsonify({"success": True, "data": data})
+        data = {
+            "food_name": "Analysis unavailable",
+            "notes": str(e)
+        }
+
+    return jsonify({
+        "success": True,
+        "data": data
+    })
 
 
 @modules_api_bp.route("/ai-camera/medicine", methods=["POST"])
 @jwt_required()
 def analyze_medicine():
+
     d = request.get_json() or {}
     image = d.get("image", "")
+
     if not image:
-        return jsonify({"success": False, "message": "image required"}), 400
+        return jsonify({
+            "success": False,
+            "message": "image required"
+        }), 400
 
     try:
-        import anthropic
-        import json
-        import re
 
-        client = anthropic.Anthropic(
-            api_key=current_app.config.get("ANTHROPIC_API_KEY", "")
+        if "," in image:
+            image = image.split(",", 1)[1]
+
+        image_bytes = base64.b64decode(image)
+
+        prompt = """
+Identify the medicine shown in this image.
+
+Return ONLY valid JSON.
+
+{
+    "medicine_name":"",
+    "active_ingredient":"",
+    "common_uses":"",
+    "typical_dosage":"",
+    "important_warnings":"",
+    "requires_prescription":false
+}
+"""
+
+        response = vision_model.generate_content(
+            [
+                prompt,
+                {
+                    "mime_type": "image/jpeg",
+                    "data": image_bytes
+                }
+            ]
         )
 
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=400,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": image
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": "Identify this medicine if visible. Return JSON: {medicine_name, active_ingredient, common_uses, typical_dosage, important_warnings, requires_prescription (true/false)}"
-                    },
-                ]
-            }],
-        )
+        text = response.text
 
-        text = resp.content[0].text
-        match = re.search(r'\{.*\}', text, re.DOTALL)
-        data = json.loads(match.group()) if match else {"medicine_name": "Unknown"}
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+
+        if match:
+            data = json.loads(match.group())
+        else:
+            data = {
+                "medicine_name": "Unknown",
+                "notes": text
+            }
+
     except Exception as e:
-        data = {"medicine_name": "Analysis unavailable", "notes": str(e)}
 
-    return jsonify({"success": True, "data": data})
+        data = {
+            "medicine_name": "Analysis unavailable",
+            "notes": str(e)
+        }
+
+    return jsonify({
+        "success": True,
+        "data": data
+    })
 
 
 # ════════════════════════════════════════════════════════════════
