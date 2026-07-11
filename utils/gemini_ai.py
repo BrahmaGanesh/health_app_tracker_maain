@@ -19,7 +19,7 @@ print("=" * 50)
 print("Gemini API key loaded successfully.")
 print("=" * 50)
 
-model = genai.GenerativeModel("gemini-1.5-flash")
+model = genai.GenerativeModel("gemini-flash-latest")
 
 
 # ======================================================
