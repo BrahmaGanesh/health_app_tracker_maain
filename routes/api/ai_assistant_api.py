@@ -1,5 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_current_user
+import traceback
+
 from utils.gemini_ai import ask_gemini
 
 ai_bp = Blueprint("ai", __name__)
@@ -8,16 +10,34 @@ ai_bp = Blueprint("ai", __name__)
 @ai_bp.route("/chat", methods=["POST"])
 @jwt_required()
 def chat():
-    print("\n========== AI ROUTE CALLED ==========")
+
+    print("\n" + "=" * 80)
+    print("AI CHAT ROUTE CALLED")
+    print("=" * 80)
 
     try:
+
+        # ---------------------------------------------------
+        # Current User
+        # ---------------------------------------------------
+
         user = get_current_user()
 
-        print(f"User ID: {user.id}")
+        if user:
+            print(f"User ID: {user.id}")
+        else:
+            print("User object is None")
+
+        # ---------------------------------------------------
+        # Request Body
+        # ---------------------------------------------------
 
         data = request.get_json(silent=True) or {}
 
-        message = data.get("message", "").strip()
+        print("Incoming JSON:")
+        print(data)
+
+        message = str(data.get("message", "")).strip()
         history = data.get("history", [])
 
         print("Message:", message)
@@ -30,7 +50,11 @@ def chat():
                 "data": None
             }), 400
 
-        print("Calling ask_gemini()...")
+        # ---------------------------------------------------
+        # Call Gemini
+        # ---------------------------------------------------
+
+        print("\nCalling ask_gemini()...\n")
 
         result = ask_gemini(
             message=message,
@@ -38,8 +62,10 @@ def chat():
             history=history
         )
 
-        print("ask_gemini() returned:")
+        print("\nask_gemini() returned:")
         print(result)
+
+        print("=" * 80)
 
         return jsonify({
             "success": result.get("success", False),
@@ -50,12 +76,17 @@ def chat():
         }), 200 if result.get("success") else 500
 
     except Exception as e:
-        import traceback
 
-        print("\n========== AI ROUTE ERROR ==========")
+        print("\n" + "=" * 80)
+        print("AI ROUTE EXCEPTION")
+        print("=" * 80)
+
         traceback.print_exc()
-        print("Exception:", repr(e))
-        print("====================================\n")
+
+        print("Exception Type:", type(e).__name__)
+        print("Exception:", str(e))
+
+        print("=" * 80)
 
         return jsonify({
             "success": False,
