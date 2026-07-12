@@ -25,6 +25,7 @@ dependencies:
   path: ^1.9.0
 
   fl_chart: ^1.2.0
+  flutter_tts: ^4.2.2
 
   cupertino_icons: ^1.0.6
   intl: ^0.20.2

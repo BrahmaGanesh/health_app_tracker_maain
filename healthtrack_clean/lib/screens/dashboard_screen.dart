@@ -337,6 +337,7 @@ class _DashboardScreenState extends State<DashboardScreen> with SingleTickerProv
       ('📅', 'Appointments', AppColors.info,      '/appointments'),
       ('🏃', 'Exercise',     AppColors.exercise,  '/exercise'),
       ('🤖', 'AI Assist',    AppColors.sage,      '/ai'),
+      ('📷', 'AI Camera', AppColors.violet, '/ai-camera'),
       ('📋', 'Timeline',     AppColors.navy,      '/timeline'),
       ('🚨', 'Emergency',    AppColors.danger,    '/emergency'),
       ('⏰', 'Reminders',    AppColors.gold,      '/reminders'),

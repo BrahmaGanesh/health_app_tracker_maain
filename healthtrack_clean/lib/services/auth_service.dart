@@ -1,165 +1,260 @@
-// ============================================================
-// lib/services/auth_service.dart — Auth State Management
-// Handles login, register, logout, current user state
-// ============================================================
-
+// lib/services/auth_service.dart — Login, register, auto-login, refresh
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 
 class AuthService extends ChangeNotifier {
-  final ApiService _api = ApiService();
-
   Map<String, dynamic>? _user;
-  Map<String, dynamic>? _profile;
-  Map<String, dynamic>? _goals;
-  List<String> _conditions = [];
-  bool _isLoading = false;
-  bool _isAuthenticated = false;
+  bool _loading = false;
   String? _errorMessage;
 
   Map<String, dynamic>? get user => _user;
-  Map<String, dynamic>? get profile => _profile;
-  Map<String, dynamic>? get goals => _goals;
-  List<String> get conditions => _conditions;
-  bool get isLoading => _isLoading;
-  bool get isAuthenticated => _isAuthenticated;
+  bool get loading => _loading;
+  bool get isLoading => _loading;
+  bool get isLoggedIn => _user != null;
   String? get errorMessage => _errorMessage;
-
   String get userName => _user?['name'] ?? 'User';
-  String get userEmail => _user?['email'] ?? '';
-  bool get hasBP => _conditions.contains('High Blood Pressure');
-  bool get hasDiabetes => _conditions.any((c) => c.contains('Diabetes'));
-
-  // ── Check if already logged in (app startup) ──────────────────
-  Future<bool> tryAutoLogin() async {
-    _isLoading = true;
-    notifyListeners();
-
-    final hasToken = await _api.hasToken();
-    if (!hasToken) {
-      _isLoading = false;
-      notifyListeners();
-      return false;
-    }
-
-    final resp = await _api.getMe();
-    _isLoading = false;
-
-    if (resp.success) {
-      _user = resp.data['user'];
-      _profile = resp.data['profile'];
-      _goals = resp.data['goals'];
-      _conditions = List<String>.from(resp.data['conditions'] ?? []);
-      _isAuthenticated = true;
-      notifyListeners();
-      return true;
-    }
-
-    _isAuthenticated = false;
-    notifyListeners();
-    return false;
-  }
-
-  // ── Register ────────────────────────────────────────────────────
-  Future<bool> register(String name, String email, String password) async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    final resp = await _api.register(name, email, password);
-    _isLoading = false;
-
-    if (resp.success) {
-      _user = resp.data['user'];
-      await _api.saveTokens(resp.data['access_token'], resp.data['refresh_token']);
-      _isAuthenticated = true;
-      notifyListeners();
-      return true;
-    }
-
-    _errorMessage = resp.message;
-    if (resp.data != null && resp.data['errors'] != null) {
-      final errors = resp.data['errors'] as Map;
-      _errorMessage = errors.values.first.toString();
-    }
-    notifyListeners();
-    return false;
-  }
-
-  // ── Login ────────────────────────────────────────────────────────
-  Future<bool> login(String email, String password, {String? fcmToken}) async {
-    _isLoading = true;
-    _errorMessage = null;
-    notifyListeners();
-
-    final resp = await _api.login(email, password, fcmToken: fcmToken);
-    _isLoading = false;
-
-    if (resp.success) {
-      _user = resp.data['user'];
-      _profile = resp.data['profile'];
-      _goals = resp.data['goals'];
-      _conditions = List<String>.from(_user?['conditions'] ?? []);
-      await _api.saveTokens(resp.data['access_token'], resp.data['refresh_token']);
-      _isAuthenticated = true;
-      notifyListeners();
-      return true;
-    }
-
-    _errorMessage = resp.message;
-    notifyListeners();
-    return false;
-  }
-
-  // ── Update FCM token (call after login + when token refreshes) ──
-  Future<void> updateFcmToken(String token) async {
-    await _api.updateFcmToken(token);
-  }
-
-  // ── Forgot / Reset Password ────────────────────────────────────
-  Future<String> forgotPassword(String email) async {
-    final resp = await _api.forgotPassword(email);
-    return resp.message;
-  }
-
-  Future<bool> resetPassword(String email, String token, String password) async {
-    final resp = await _api.resetPassword(email, token, password);
-    return resp.success;
-  }
-
-  Future<bool> changePassword(String currentPw, String newPw) async {
-    final resp = await _api.changePassword(currentPw, newPw);
-    if (!resp.success) _errorMessage = resp.message;
-    notifyListeners();
-    return resp.success;
-  }
-
-  // ── Refresh user data (after onboarding, profile edits) ────────
-  Future<void> refreshUser() async {
-    final resp = await _api.getMe();
-    if (resp.success) {
-      _user = resp.data['user'];
-      _profile = resp.data['profile'];
-      _goals = resp.data['goals'];
-      _conditions = List<String>.from(resp.data['conditions'] ?? []);
-      notifyListeners();
-    }
-  }
-
-  // ── Logout ───────────────────────────────────────────────────────
-  Future<void> logout() async {
-    await _api.logout();
-    await _api.clearTokens();
-    _user = null;
-    _profile = null;
-    _goals = null;
-    _conditions = [];
-    _isAuthenticated = false;
-    notifyListeners();
-  }
+  List<String> get conditions => List<String>.from(_user?['conditions'] ?? []);
 
   void clearError() {
     _errorMessage = null;
     notifyListeners();
+  }
+
+  void _setLoading(bool value) {
+    _loading = value;
+    notifyListeners();
+  }
+
+  void _setError(String? message) {
+    _errorMessage = message;
+    notifyListeners();
+  }
+
+  Future<bool> tryAutoLogin() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+    if (token == null || token.isEmpty) return false;
+
+    try {
+      _setError(null);
+      final resp = await ApiService().get('/auth/me');
+      if (resp.success) {
+        _user = resp.data['user'];
+        notifyListeners();
+        return true;
+      } else {
+        _errorMessage = resp.message ?? 'Auto-login failed';
+        notifyListeners();
+      }
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+    return false;
+  }
+
+  Future<ApiResponse> login(
+    String email,
+    String password, {
+    String? fcmToken,
+  }) async {
+    _setLoading(true);
+    _setError(null);
+
+    try {
+      final resp = await ApiService().post(
+        '/auth/login',
+        data: {
+          'email': email.trim(),
+          'password': password,
+          'fcm_token': fcmToken ?? '',
+        },
+      );
+
+      if (resp.success) {
+        await ApiService().saveTokens(
+          resp.data['access_token'],
+          resp.data['refresh_token'],
+        );
+        _user = resp.data['user'];
+        _errorMessage = null;
+      } else {
+        _errorMessage = resp.message ?? 'Login failed';
+      }
+
+      notifyListeners();
+      return resp;
+    } catch (e) {
+      final error = ApiResponse(
+        success: false,
+        message: 'Login error: $e',
+        data: {},
+        statusCode: 500,
+      );
+      _errorMessage = error.message;
+      notifyListeners();
+      return error;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<ApiResponse> register(
+    String name,
+    String email,
+    String password,
+  ) async {
+    _setLoading(true);
+    _setError(null);
+
+    try {
+      final resp = await ApiService().post(
+        '/auth/register',
+        data: {
+          'name': name.trim(),
+          'email': email.trim(),
+          'password': password,
+        },
+      );
+
+      if (resp.success) {
+        await ApiService().saveTokens(
+          resp.data['access_token'],
+          resp.data['refresh_token'],
+        );
+        _user = resp.data['user'];
+        _errorMessage = null;
+      } else {
+        _errorMessage = resp.message ?? 'Registration failed';
+      }
+
+      notifyListeners();
+      return resp;
+    } catch (e) {
+      final error = ApiResponse(
+        success: false,
+        message: 'Registration error: $e',
+        data: {},
+        statusCode: 500,
+      );
+      _errorMessage = error.message;
+      notifyListeners();
+      return error;
+    } finally {
+      _setLoading(false);
+    }
+  }
+
+  Future<void> logout() async {
+    try {
+      await ApiService().post('/auth/logout');
+    } catch (_) {}
+
+    await ApiService().clearTokens();
+    _user = null;
+    _errorMessage = null;
+    notifyListeners();
+  }
+
+  Future<void> refreshUser() async {
+    try {
+      final resp = await ApiService().get('/auth/me');
+      if (resp.success) {
+        _user = resp.data['user'];
+        _errorMessage = null;
+        notifyListeners();
+      } else {
+        _errorMessage = resp.message ?? 'Failed to refresh user';
+        notifyListeners();
+      }
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateFcmToken(String token) async {
+    try {
+      await ApiService().post('/auth/fcm-token', data: {'fcm_token': token});
+    } catch (_) {}
+  }
+
+  Future<ApiResponse> forgotPassword(String email) async {
+    _setError(null);
+    try {
+      final resp = await ApiService().post(
+        '/auth/forgot-password',
+        data: {'email': email.trim()},
+      );
+      if (!resp.success) {
+        _errorMessage = resp.message ?? 'Forgot password failed';
+        notifyListeners();
+      }
+      return resp;
+    } catch (e) {
+      final error = ApiResponse(
+        success: false,
+        message: 'Forgot password error: $e',
+        data: {},
+        statusCode: 500,
+      );
+      _errorMessage = error.message;
+      notifyListeners();
+      return error;
+    }
+  }
+
+  Future<ApiResponse> resetPassword(String token, String password) async {
+    _setError(null);
+    try {
+      final resp = await ApiService().post(
+        '/auth/reset-password',
+        data: {'token': token, 'password': password},
+      );
+      if (!resp.success) {
+        _errorMessage = resp.message ?? 'Reset password failed';
+        notifyListeners();
+      }
+      return resp;
+    } catch (e) {
+      final error = ApiResponse(
+        success: false,
+        message: 'Reset password error: $e',
+        data: {},
+        statusCode: 500,
+      );
+      _errorMessage = error.message;
+      notifyListeners();
+      return error;
+    }
+  }
+
+  Future<ApiResponse> changePassword(String current, String newPass) async {
+    _setError(null);
+    try {
+      final resp = await ApiService().post(
+        '/auth/change-password',
+        data: {
+          'current_password': current,
+          'new_password': newPass,
+        },
+      );
+      if (!resp.success) {
+        _errorMessage = resp.message ?? 'Change password failed';
+        notifyListeners();
+      }
+      return resp;
+    } catch (e) {
+      final error = ApiResponse(
+        success: false,
+        message: 'Change password error: $e',
+        data: {},
+        statusCode: 500,
+      );
+      _errorMessage = error.message;
+      notifyListeners();
+      return error;
+    }
   }
 }
