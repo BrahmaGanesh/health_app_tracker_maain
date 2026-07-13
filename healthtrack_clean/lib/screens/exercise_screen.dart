@@ -1,14 +1,14 @@
-// lib/screens/exercise_screen.dart — Premium Exercise Hub
+// lib/screens/exercise_screen.dart
 import 'dart:async';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:fl_chart/fl_chart.dart';
+
 import '../constants/app_theme.dart';
 import '../services/api_service.dart';
-import '../services/sync_service.dart';
-import '../services/step_tracking_service.dart';
 import '../services/notification_service.dart';
-import '../services/local_db_service.dart';
+import '../services/step_tracking_service.dart';
+import '../services/sync_service.dart';
 import '../widgets/bottom_nav.dart';
 import '../widgets/common_widgets.dart';
 import '../widgets/tts_speaker_button.dart';
@@ -22,7 +22,7 @@ class ExerciseScreen extends StatefulWidget {
 
 class _ExerciseScreenState extends State<ExerciseScreen>
     with SingleTickerProviderStateMixin {
-  late TabController _tabs;
+  late final TabController _tabs;
 
   @override
   void initState() {
@@ -56,10 +56,8 @@ class _ExerciseScreenState extends State<ExerciseScreen>
             padding: const EdgeInsets.only(right: 12),
             child: Center(
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: (sync.isOnline
                           ? AppColors.success
@@ -99,11 +97,11 @@ class _ExerciseScreenState extends State<ExerciseScreen>
         ],
         bottom: TabBar(
           controller: _tabs,
+          isScrollable: true,
+          indicatorColor: AppColors.exercise,
           labelColor: AppColors.exercise,
           unselectedLabelColor:
               isDark ? AppColors.textMutedDark : AppColors.textMuted,
-          indicatorColor: AppColors.exercise,
-          isScrollable: true,
           tabs: const [
             Tab(text: '🏋️ Log'),
             Tab(text: '👟 Steps'),
@@ -112,8 +110,9 @@ class _ExerciseScreenState extends State<ExerciseScreen>
           ],
         ),
       ),
-      body: const TabBarView(
-        children: [
+      body: TabBarView(
+        controller: _tabs,
+        children: const [
           _LogTab(),
           _StepsTab(),
           _BreathingTab(),
@@ -125,9 +124,6 @@ class _ExerciseScreenState extends State<ExerciseScreen>
   }
 }
 
-// ════════════════════════════════════════════════════════════════
-// LOG TAB — premium cards, timeline design
-// ════════════════════════════════════════════════════════════════
 class _LogTab extends StatefulWidget {
   const _LogTab();
 
@@ -137,7 +133,6 @@ class _LogTab extends StatefulWidget {
 
 class _LogTabState extends State<_LogTab> {
   final _api = ApiService();
-  final _sync = SyncService();
 
   final _nameCtrl = TextEditingController();
   final _durCtrl = TextEditingController();
@@ -168,23 +163,23 @@ class _LogTabState extends State<_LogTab> {
   }
 
   Future<void> _load() async {
-    if (mounted) {
-      setState(() => _loading = true);
+    if (mounted) setState(() => _loading = true);
+
+    try {
+      final r = await _api.getExerciseHistory(days: 7);
+      if (!mounted) return;
+
+      if (r.success) {
+        setState(() {
+          _history = r.data['logs'] ?? [];
+          _todayMins = r.data['today_mins'] ?? 0;
+          _totalCal = r.data['total_calories'] ?? 0;
+        });
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-
-    final r = await _api.getExerciseHistory(days: 7);
-
-    if (!mounted) return;
-
-    if (r.success) {
-      setState(() {
-        _history = r.data['logs'] ?? [];
-        _todayMins = r.data['today_mins'] ?? 0;
-        _totalCal = r.data['total_calories'] ?? 0;
-      });
-    }
-
-    setState(() => _loading = false);
   }
 
   Future<void> _save() async {
@@ -192,30 +187,36 @@ class _LogTabState extends State<_LogTab> {
 
     setState(() => _saving = true);
 
-    await _api.logExercise(
-      exerciseName: _nameCtrl.text.trim(),
-      exerciseType: _type,
-      durationMinutes: int.tryParse(_durCtrl.text),
-      intensity: _intensity,
-    );
-
-    if (!mounted) return;
-
-    setState(() => _saving = false);
-    _nameCtrl.clear();
-    _durCtrl.clear();
-    _notesCtrl.clear();
-    FocusScope.of(context).unfocus();
-
-    await _load();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Logged!'),
-          backgroundColor: AppColors.success,
-        ),
+    try {
+      await _api.logExercise(
+        exerciseName: _nameCtrl.text.trim(),
+        exerciseType: _type,
+        durationMinutes: int.tryParse(_durCtrl.text),
+        intensity: _intensity,
       );
+
+      _nameCtrl.clear();
+      _durCtrl.clear();
+      _notesCtrl.clear();
+      FocusScope.of(context).unfocus();
+      await _load();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Logged!'),
+            backgroundColor: AppColors.success,
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not save exercise log')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -260,7 +261,6 @@ class _LogTabState extends State<_LogTab> {
             ],
           ),
           const SizedBox(height: 16),
-
           Container(
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
@@ -303,25 +303,20 @@ class _LogTabState extends State<_LogTab> {
                       child: DropdownButtonFormField<String>(
                         value: _type,
                         decoration: const InputDecoration(labelText: 'Type'),
-                        items: {
-                          'cardio': '🏃 Cardio',
-                          'strength': '💪 Strength',
-                          'yoga': '🧘 Yoga',
-                          'flexibility': '🤸 Stretch',
-                          'sports': '⚽ Sports',
-                          'other': '🏋️ Other',
-                        }
-                            .entries
-                            .map(
-                              (e) => DropdownMenuItem<String>(
-                                value: e.key,
-                                child: Text(
-                                  e.value,
-                                  style: const TextStyle(fontSize: 13),
-                                ),
-                              ),
-                            )
-                            .toList(),
+                        items: const [
+                          DropdownMenuItem(
+                              value: 'cardio', child: Text('🏃 Cardio')),
+                          DropdownMenuItem(
+                              value: 'strength', child: Text('💪 Strength')),
+                          DropdownMenuItem(
+                              value: 'yoga', child: Text('🧘 Yoga')),
+                          DropdownMenuItem(
+                              value: 'flexibility', child: Text('🤸 Stretch')),
+                          DropdownMenuItem(
+                              value: 'sports', child: Text('⚽ Sports')),
+                          DropdownMenuItem(
+                              value: 'other', child: Text('🏋️ Other')),
+                        ],
                         onChanged: (v) => setState(() => _type = v ?? 'cardio'),
                       ),
                     ),
@@ -344,21 +339,13 @@ class _LogTabState extends State<_LogTab> {
                   decoration: const InputDecoration(labelText: 'Intensity'),
                   items: const [
                     DropdownMenuItem(
-                      value: 'low',
-                      child: Text('🚶 Low — Easy walk'),
-                    ),
+                        value: 'low', child: Text('🚶 Low — Easy walk')),
                     DropdownMenuItem(
-                      value: 'moderate',
-                      child: Text('🏃 Moderate — Brisk'),
-                    ),
+                        value: 'moderate', child: Text('🏃 Moderate — Brisk')),
                     DropdownMenuItem(
-                      value: 'high',
-                      child: Text('🏃‍♂️ High — Running'),
-                    ),
+                        value: 'high', child: Text('🏃‍♂️ High — Running')),
                     DropdownMenuItem(
-                      value: 'very_high',
-                      child: Text('🔥 Very High — HIIT'),
-                    ),
+                        value: 'very_high', child: Text('🔥 Very High — HIIT')),
                   ],
                   onChanged: (v) =>
                       setState(() => _intensity = v ?? 'moderate'),
@@ -406,7 +393,17 @@ class _LogTabState extends State<_LogTab> {
             ),
           ),
           const SizedBox(height: 20),
-
+          if (_loading) const Center(child: Padding(
+            padding: EdgeInsets.all(16),
+            child: CircularProgressIndicator(),
+          )),
+          if (!_loading && _history.isEmpty)
+            _SimpleEmptyCard(
+              icon: '🏋️',
+              title: 'No sessions yet',
+              subtitle: 'Log your first workout to see history here.',
+              isDark: isDark,
+            ),
           if (!_loading && _history.isNotEmpty) ...[
             Text(
               '📋 Recent Sessions',
@@ -421,8 +418,8 @@ class _LogTabState extends State<_LogTab> {
             ..._history.take(10).toList().asMap().entries.map((e) {
               final i = e.key;
               final l = e.value;
-              final visibleHistory = _history.take(10).toList();
-              final isLast = i == visibleHistory.length - 1;
+              final visible = _history.take(10).toList();
+              final isLast = i == visible.length - 1;
 
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -476,7 +473,7 @@ class _LogTabState extends State<_LogTab> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  l['exercise_name'] ?? '',
+                                  '${l['exercise_name'] ?? ''}',
                                   style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
@@ -491,7 +488,7 @@ class _LogTabState extends State<_LogTab> {
                                 if (l['notes'] != null &&
                                     l['notes'].toString().isNotEmpty)
                                   Text(
-                                    l['notes'].toString(),
+                                    '${l['notes']}',
                                     style: TextStyle(
                                       fontSize: 11,
                                       color: tm,
@@ -531,7 +528,6 @@ class _LogTabState extends State<_LogTab> {
               );
             }),
           ],
-
           const SizedBox(height: 80),
         ],
       ),
@@ -539,9 +535,6 @@ class _LogTabState extends State<_LogTab> {
   }
 }
 
-// ════════════════════════════════════════════════════════════════
-// STEPS TAB — live counter + chart
-// ════════════════════════════════════════════════════════════════
 class _StepsTab extends StatefulWidget {
   const _StepsTab();
 
@@ -551,7 +544,6 @@ class _StepsTab extends StatefulWidget {
 
 class _StepsTabState extends State<_StepsTab> {
   final _manualCtrl = TextEditingController();
-  final _api = ApiService();
   bool _savingManual = false;
 
   @override
@@ -590,59 +582,44 @@ class _StepsTabState extends State<_StepsTab> {
                     : [const Color(0xFF334155), const Color(0xFF475569)],
               ),
               borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: (tracking ? AppColors.info : Colors.grey)
-                      .withOpacity(0.3),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
             ),
             padding: const EdgeInsets.all(22),
             child: Column(
               children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 5,
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(100),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: tracking
+                              ? const Color(0xFF4ADE80)
+                              : Colors.white38,
+                        ),
                       ),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(100),
+                      const SizedBox(width: 6),
+                      Text(
+                        tracking ? 'LIVE TRACKING' : 'PAUSED',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: tracking
+                              ? const Color(0xFF4ADE80)
+                              : Colors.white60,
+                          letterSpacing: 1,
+                        ),
                       ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Container(
-                            width: 7,
-                            height: 7,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: tracking
-                                  ? const Color(0xFF4ADE80)
-                                  : Colors.white38,
-                            ),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            tracking ? 'LIVE TRACKING' : 'PAUSED',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: tracking
-                                  ? const Color(0xFF4ADE80)
-                                  : Colors.white60,
-                              letterSpacing: 1,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 20),
                 Text(
@@ -667,7 +644,7 @@ class _StepsTabState extends State<_StepsTab> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(100),
                   child: LinearProgressIndicator(
-                    value: pct,
+                    value: pct.clamp(0.0, 1.0),
                     minHeight: 10,
                     backgroundColor: Colors.white.withOpacity(0.15),
                     color: stepSvc.goalAchieved
@@ -727,77 +704,20 @@ class _StepsTabState extends State<_StepsTab> {
                         onPressed: tracking
                             ? () => stepSvc.stopTracking()
                             : () => stepSvc.startTracking(),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: tracking
-                              ? Colors.red.withOpacity(0.2)
-                              : Colors.green.withOpacity(0.2),
-                          foregroundColor: tracking
-                              ? const Color(0xFFFCA5A5)
-                              : const Color(0xFF4ADE80),
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          side: BorderSide(
-                            color: tracking
-                                ? Colors.red.withOpacity(0.3)
-                                : Colors.green.withOpacity(0.3),
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        child: Text(
-                          tracking ? '⏹ Stop' : '▶ Start',
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
+                        child: Text(tracking ? '⏹ Stop' : '▶ Start'),
                       ),
                     ),
                     const SizedBox(width: 10),
                     ElevatedButton(
                       onPressed: () => stepSvc.syncNow(),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white.withOpacity(0.15),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                          vertical: 12,
-                          horizontal: 16,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      child: const Text(
-                        '☁️ Sync',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
+                      child: const Text('☁️ Sync'),
                     ),
                   ],
                 ),
-                if (stepSvc.goalAchieved) ...[
-                  const SizedBox(height: 12),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF4ADE80).withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(100),
-                    ),
-                    child: const Text(
-                      '🏆 Daily goal achieved!',
-                      style: TextStyle(
-                        color: Color(0xFF4ADE80),
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
           const SizedBox(height: 20),
-
           if (week.isNotEmpty)
             Container(
               padding: const EdgeInsets.all(18),
@@ -824,11 +744,7 @@ class _StepsTabState extends State<_StepsTab> {
                       ),
                       Text(
                         'Goal: $goal/day',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: tm,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        style: TextStyle(fontSize: 11, color: tm),
                       ),
                     ],
                   ),
@@ -837,6 +753,7 @@ class _StepsTabState extends State<_StepsTab> {
                     height: 180,
                     child: BarChart(
                       BarChartData(
+                        borderData: FlBorderData(show: false),
                         gridData: FlGridData(
                           show: true,
                           drawVerticalLine: false,
@@ -846,7 +763,6 @@ class _StepsTabState extends State<_StepsTab> {
                             strokeWidth: 1,
                           ),
                         ),
-                        borderData: FlBorderData(show: false),
                         titlesData: FlTitlesData(
                           topTitles: const AxisTitles(
                             sideTitles: SideTitles(showTitles: false),
@@ -858,8 +774,8 @@ class _StepsTabState extends State<_StepsTab> {
                             sideTitles: SideTitles(
                               showTitles: true,
                               reservedSize: 36,
-                              getTitlesWidget: (v, _) => Text(
-                                '${(v / 1000).toStringAsFixed(0)}k',
+                              getTitlesWidget: (value, _) => Text(
+                                '${(value / 1000).toStringAsFixed(0)}k',
                                 style: TextStyle(fontSize: 9, color: tm),
                               ),
                             ),
@@ -868,8 +784,8 @@ class _StepsTabState extends State<_StepsTab> {
                             sideTitles: SideTitles(
                               showTitles: true,
                               reservedSize: 24,
-                              getTitlesWidget: (v, _) {
-                                final i = v.toInt();
+                              getTitlesWidget: (value, _) {
+                                final i = value.toInt();
                                 if (i < 0 || i >= week.length) {
                                   return const SizedBox.shrink();
                                 }
@@ -894,112 +810,38 @@ class _StepsTabState extends State<_StepsTab> {
                             ),
                           ),
                         ),
-                        barGroups: week
-                            .asMap()
-                            .entries
-                            .map(
-                              (e) => BarChartGroupData(
-                                x: e.key,
-                                barRods: [
-                                  BarChartRodData(
-                                    toY: e.value.steps.toDouble(),
-                                    color: e.value.achieved
-                                        ? const Color(0xFF22C55E)
-                                        : AppColors.info,
-                                    width: 24,
-                                    borderRadius: const BorderRadius.vertical(
-                                      top: Radius.circular(8),
-                                    ),
-                                  ),
-                                ],
+                        barGroups: week.asMap().entries.map((e) {
+                          return BarChartGroupData(
+                            x: e.key,
+                            barRods: [
+                              BarChartRodData(
+                                toY: e.value.steps.toDouble(),
+                                color: e.value.achieved
+                                    ? const Color(0xFF22C55E)
+                                    : AppColors.info,
+                                width: 24,
+                                borderRadius: const BorderRadius.vertical(
+                                  top: Radius.circular(8),
+                                ),
                               ),
-                            )
-                            .toList(),
+                            ],
+                          );
+                        }).toList(),
                         maxY: (goal * 1.3).toDouble(),
-                        extraLinesData: ExtraLinesData(
-                          horizontalLines: [
-                            HorizontalLine(
-                              y: goal.toDouble(),
-                              color: Colors.amber.withOpacity(0.6),
-                              strokeWidth: 1.5,
-                              dashArray: [6, 4],
-                            ),
-                          ],
-                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _LDot(const Color(0xFF22C55E), 'Goal hit'),
-                      const SizedBox(width: 12),
-                      _LDot(AppColors.info, 'Steps'),
-                      const SizedBox(width: 12),
-                      _LDot(Colors.amber, 'Goal line'),
-                    ],
                   ),
                 ],
               ),
             ),
-
           const SizedBox(height: 16),
-
           if (stepSvc.status == 'no_permission')
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: AppColors.warning.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: AppColors.warning.withOpacity(0.3),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Text('⚠️', style: TextStyle(fontSize: 20)),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Permission needed',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        Text(
-                          'Allow activity recognition to count steps',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textMuted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: () async {
-                      await stepSvc.requestPermission();
-                      if (stepSvc.hasPermission) {
-                        await stepSvc.startTracking();
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 8,
-                      ),
-                    ),
-                    child: const Text(
-                      'Allow',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ),
-                ],
-              ),
+            _SimpleInfoCard(
+              icon: '⚠️',
+              title: 'Permission needed',
+              subtitle: 'Allow activity recognition to count steps.',
+              isDark: isDark,
             ),
-
           if (stepSvc.status == 'unavailable')
             Container(
               padding: const EdgeInsets.all(16),
@@ -1054,30 +896,6 @@ class _StepsTabState extends State<_StepsTab> {
                 ],
               ),
             ),
-
-          Container(
-            margin: const EdgeInsets.only(top: 16),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppColors.info.withOpacity(isDark ? 0.1 : 0.06),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(
-                color: AppColors.info.withOpacity(0.2),
-              ),
-            ),
-            child: Row(
-              children: [
-                const Text('💾', style: TextStyle(fontSize: 16)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'Saved offline first, synced automatically. Resets every midnight.',
-                    style: TextStyle(fontSize: 11, color: tm, height: 1.5),
-                  ),
-                ),
-              ],
-            ),
-          ),
           const SizedBox(height: 80),
         ],
       ),
@@ -1085,9 +903,6 @@ class _StepsTabState extends State<_StepsTab> {
   }
 }
 
-// ════════════════════════════════════════════════════════════════
-// BREATHING TAB — animated cards + bottom sheet + TTS
-// ════════════════════════════════════════════════════════════════
 class _BreathingTab extends StatefulWidget {
   const _BreathingTab();
 
@@ -1126,13 +941,16 @@ class _BreathingTabState extends State<_BreathingTab> {
   }
 
   Future<void> _load() async {
-    final r = await _api.getBreathingConfig();
-    if (!mounted) return;
-
-    if (r.success) {
-      setState(() => _exercises = r.data['exercises'] ?? []);
+    try {
+      final r = await _api.getBreathingConfig();
+      if (!mounted) return;
+      if (r.success) {
+        _exercises = r.data['exercises'] ?? [];
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    setState(() => _loading = false);
   }
 
   void _openBottomSheet(Map<String, dynamic> ex) {
@@ -1146,155 +964,125 @@ class _BreathingTabState extends State<_BreathingTab> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.8,
-        maxChildSize: 0.95,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (_, ctrl) => Stack(
-          children: [
-            ListView(
-              controller: ctrl,
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+      builder: (_) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.8,
+          maxChildSize: 0.95,
+          minChildSize: 0.5,
+          expand: false,
+          builder: (_, ctrl) {
+            final grad = _gradients[_exercises.indexOf(ex) % _gradients.length];
+            return Stack(
               children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                Center(
-                  child: Container(
-                    width: 80,
-                    height: 80,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: _gradients[
-                            _exercises.indexOf(ex) % _gradients.length],
+                ListView(
+                  controller: ctrl,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
-                      shape: BoxShape.circle,
                     ),
-                    child: const Center(
-                      child: Text('🫁', style: TextStyle(fontSize: 36)),
+                    _HeaderHero(
+                      title: ex['name'] ?? '',
+                      subtitle: ex['description']?.toString() ?? '',
+                      emoji: '🫁',
+                      colors: grad,
+                      dark: isDark,
                     ),
-                  ),
+                    const SizedBox(height: 16),
+                    if (ex['duration'] != null)
+                      _MetricWrap(
+                        children: [
+                          _MiniBadge(
+                            label: 'Duration',
+                            value: '${ex['duration']} min',
+                            color: AppColors.info,
+                          ),
+                        ],
+                      ),
+                    const SizedBox(height: 16),
+                    _SectionCard(
+                      title: 'Instructions',
+                      child: Text(
+                        instructions,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDark ? Colors.white : Colors.black87,
+                          height: 1.7,
+                        ),
+                      ),
+                    ),
+                    if (ex['benefits'] != null)
+                      _SectionCard(
+                        title: 'Benefits',
+                        child: Text(
+                          ex['benefits'].toString(),
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: isDark ? Colors.white70 : Colors.black54,
+                            height: 1.6,
+                          ),
+                        ),
+                      ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => _startSession(ex),
+                        child: const Text('▶ Start Breathing Session'),
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 16),
-                Center(
-                  child: Text(
-                    ex['name'] ?? '',
-                    style: TextStyle(
-                      fontFamily: 'Fraunces',
-                      fontSize: 22,
-                      fontWeight: FontWeight.w900,
-                      color: isDark ? Colors.white : const Color(0xFF142D4C),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                if (ex['duration'] != null)
-                  Center(
-                    child: Text(
-                      '${ex['duration']} min',
-                      style: const TextStyle(color: AppColors.textMuted),
-                    ),
-                  ),
-                const SizedBox(height: 20),
-                Text(
-                  instructions,
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: isDark ? Colors.white : Colors.black87,
-                    height: 1.7,
-                  ),
-                ),
-                if (ex['benefits'] != null) ...[
-                  const SizedBox(height: 20),
-                  Text(
-                    'Benefits',
-                    style: TextStyle(
-                      fontFamily: 'Fraunces',
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white : const Color(0xFF142D4C),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    ex['benefits'].toString(),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: isDark ? Colors.white70 : Colors.black54,
-                      height: 1.6,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => _startSession(ex),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    child: const Text(
-                      '▶ Start Breathing Session',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
+                Positioned(
+                  bottom: 24,
+                  right: 20,
+                  child: TtsSpeakerButton(text: instructions),
                 ),
               ],
-            ),
-            Positioned(
-              bottom: 24,
-              right: 20,
-              child: TtsSpeakerButton(text: instructions),
-            ),
-          ],
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
   void _startSession(Map<String, dynamic> ex) {
     Navigator.pop(context);
     final phases = (ex['phases'] as List?) ?? [{'duration': 4}];
-
     setState(() {
       _active = ex;
       _phaseIdx = 0;
       _round = 0;
-      _countdown = (phases[0]['duration'] ?? 4) as int;
+      _countdown = phases[0]['duration'] ?? 4;
     });
-
     _runPhase();
   }
 
   void _runPhase() {
     _timer?.cancel();
-    final phases = _active!['phases'] as List? ?? [{'name': 'Breathe', 'duration': 4}];
+    final phases =
+        _active!['phases'] as List? ?? [{'name': 'Breathe', 'duration': 4}];
 
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-
       setState(() {
         _countdown--;
-
         if (_countdown <= 0) {
           _phaseIdx++;
-
           if (_phaseIdx >= phases.length) {
             _phaseIdx = 0;
             _round++;
-
             if (_round >= (_active!['recommended_rounds'] ?? 4)) {
               timer.cancel();
               NotificationService().playSound('gentle');
@@ -1302,7 +1090,6 @@ class _BreathingTabState extends State<_BreathingTab> {
               return;
             }
           }
-
           _countdown = phases[_phaseIdx]['duration'] ?? 4;
           NotificationService().playSound('gentle');
         }
@@ -1322,93 +1109,106 @@ class _BreathingTabState extends State<_BreathingTab> {
       final phase = phases[_phaseIdx];
 
       return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              _active!['name'],
-              style: TextStyle(
-                fontFamily: 'Fraunces',
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: tp,
-              ),
-            ),
-            Text(
-              'Round ${_round + 1}/${_active!['recommended_rounds'] ?? 4}',
-              style: TextStyle(color: tm),
-            ),
-            const SizedBox(height: 30),
-            TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0.6, end: 1.0),
-              duration: Duration(seconds: phase['duration'] ?? 4),
-              curve: Curves.easeInOut,
-              builder: (_, v, __) => Transform.scale(
-                scale: v,
-                child: Container(
-                  width: 200,
-                  height: 200,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: const Color(0xFF1D4ED8).withOpacity(0.15),
-                    border: Border.all(
-                      color: const Color(0xFF1D4ED8),
-                      width: 3,
-                    ),
-                  ),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          phase['name'] ?? '',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF1D4ED8),
-                          ),
-                        ),
-                        Text(
-                          '$_countdown',
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
-                            fontSize: 52,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        Text(
-                          phase['instruction'] ?? '',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppColors.textMuted,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
-                    ),
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                _active!['name'] ?? '',
+                style: TextStyle(
+                  fontFamily: 'Fraunces',
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: tp,
                 ),
               ),
-            ),
-            const SizedBox(height: 28),
-            ElevatedButton(
-              onPressed: () {
-                _timer?.cancel();
-                setState(() => _active = null);
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.danger.withOpacity(0.12),
-                foregroundColor: AppColors.danger,
-                elevation: 0,
+              Text(
+                'Round ${_round + 1}/${_active!['recommended_rounds'] ?? 4}',
+                style: TextStyle(color: tm),
               ),
-              child: const Text('⏹ Stop'),
-            ),
-          ],
+              const SizedBox(height: 28),
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0.6, end: 1.0),
+                duration: Duration(seconds: phase['duration'] ?? 4),
+                curve: Curves.easeInOut,
+                builder: (_, v, __) {
+                  return Transform.scale(
+                    scale: v,
+                    child: Container(
+                      width: 220,
+                      height: 220,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: const Color(0xFF1D4ED8).withOpacity(0.15),
+                        border: Border.all(
+                          color: const Color(0xFF1D4ED8),
+                          width: 3,
+                        ),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${phase['name'] ?? ''}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1D4ED8),
+                              ),
+                            ),
+                            Text(
+                              '$_countdown',
+                              style: const TextStyle(
+                                fontFamily: 'monospace',
+                                fontSize: 52,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 20),
+                              child: Text(
+                                '${phase['instruction'] ?? ''}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textMuted,
+                                ),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 24),
+              ElevatedButton(
+                onPressed: () {
+                  _timer?.cancel();
+                  setState(() => _active = null);
+                },
+                child: const Text('⏹ Stop'),
+              ),
+            ],
+          ),
         ),
       );
     }
 
-    if (_loading) return const LoadingView();
+    if (_loading) return const Center(child: CircularProgressIndicator());
+
+    if (_exercises.isEmpty) {
+      return _SimpleEmptyCard(
+        icon: '🫁',
+        title: 'No breathing exercises',
+        subtitle: 'Breathing sessions will appear here when available.',
+        isDark: isDark,
+      );
+    }
 
     return ListView.builder(
       padding: const EdgeInsets.all(16),
@@ -1426,7 +1226,7 @@ class _BreathingTabState extends State<_BreathingTab> {
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: grad[0].withOpacity(0.3),
+                  color: grad.first.withOpacity(0.3),
                   blurRadius: 16,
                   offset: const Offset(0, 6),
                 ),
@@ -1453,7 +1253,7 @@ class _BreathingTabState extends State<_BreathingTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          ex['name'] ?? '',
+                          '${ex['name'] ?? ''}',
                           style: const TextStyle(
                             fontFamily: 'Fraunces',
                             fontSize: 17,
@@ -1466,53 +1266,10 @@ class _BreathingTabState extends State<_BreathingTab> {
                           ex['description']?.toString().split('.').first ?? '',
                           style: TextStyle(
                             fontSize: 12,
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withOpacity(0.85),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            if (ex['duration'] != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.2),
-                                  borderRadius: BorderRadius.circular(100),
-                                ),
-                                child: Text(
-                                  '${ex['duration']} min',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(100),
-                              ),
-                              child: const Text(
-                                'Tap to start',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ),
-                          ],
                         ),
                       ],
                     ),
@@ -1532,9 +1289,6 @@ class _BreathingTabState extends State<_BreathingTab> {
   }
 }
 
-// ════════════════════════════════════════════════════════════════
-// LIBRARY TAB — premium cards + bottom sheet + TTS
-// ════════════════════════════════════════════════════════════════
 class _LibraryTab extends StatefulWidget {
   const _LibraryTab();
 
@@ -1575,30 +1329,30 @@ class _LibraryTabState extends State<_LibraryTab> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final r = await _api.getExerciseLibrary(bpSafe: _bpSafe);
-
-    if (!mounted) return;
-
-    if (r.success) {
-      setState(() => _exercises = r.data['exercises'] ?? []);
+    try {
+      final r = await _api.getExerciseLibrary(bpSafe: _bpSafe);
+      if (!mounted) return;
+      if (r.success) {
+        _exercises = r.data['exercises'] ?? [];
+      }
+    } catch (_) {
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    setState(() => _loading = false);
   }
 
   List<dynamic> get _filtered {
     var list = _exercises;
-
     if (_category != 'all') {
       list = list.where((e) => e['category'] == _category).toList();
     }
-
     final q = _searchCtrl.text.trim().toLowerCase();
     if (q.isNotEmpty) {
-      list = list
-          .where((e) => (e['name'] ?? '').toString().toLowerCase().contains(q))
-          .toList();
+      list = list.where((e) {
+        final name = (e['name'] ?? '').toString().toLowerCase();
+        return name.contains(q);
+      }).toList();
     }
-
     return list;
   }
 
@@ -1614,147 +1368,112 @@ class _LibraryTabState extends State<_LibraryTab> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
-      builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.88,
-        maxChildSize: 0.95,
-        minChildSize: 0.5,
-        expand: false,
-        builder: (_, ctrl) => Stack(
-          children: [
-            ListView(
-              controller: ctrl,
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+      builder: (_) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.88,
+          maxChildSize: 0.95,
+          minChildSize: 0.5,
+          expand: false,
+          builder: (_, ctrl) {
+            return Stack(
               children: [
-                BsHeader(
-                  imageUrl: ex['image_url'],
-                  emoji: {
-                        'cardio': '🏃',
-                        'strength': '💪',
-                        'yoga': '🧘',
-                        'flexibility': '🤸',
-                        'breathing': '🫁',
-                        'sports': '⚽',
-                      }[ex['category']] ??
-                      '🏋️',
-                  title: ex['name'] ?? '',
-                  badge: Row(
-                    children: [
-                      DifficultyChip(
-                        difficulty: ex['difficulty'] ?? 'beginner',
-                      ),
-                      const SizedBox(width: 8),
-                      if (ex['bp_safe'] == true)
-                        const Text(
-                          '❤️ BP Safe',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.success,
-                          ),
+                ListView(
+                  controller: ctrl,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 100),
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
                         ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      MacroChip(
-                        label: 'Duration',
-                        value: '${ex['duration_mins'] ?? '—'} min',
-                        color: AppColors.info,
                       ),
-                      const SizedBox(width: 8),
-                      MacroChip(
-                        label: 'Cal/min',
-                        value: '${ex['calories_per_min'] ?? '—'}',
-                        color: AppColors.danger,
-                      ),
-                      const SizedBox(width: 8),
-                      if (ex['muscle_group'] != null)
-                        MacroChip(
-                          label: 'Muscles',
-                          value: ex['muscle_group'],
+                    ),
+                    _HeaderHero(
+                      title: ex['name'] ?? '',
+                      subtitle: ex['description']?.toString() ?? '',
+                      emoji: _emojiForCategory(ex['category']),
+                      colors: const [
+                        Color(0xFF2563EB),
+                        Color(0xFF0EA5E9),
+                      ],
+                      dark: isDark,
+                    ),
+                    const SizedBox(height: 16),
+                    _MetricWrap(
+                      children: [
+                        _MiniBadge(
+                          label: 'Difficulty',
+                          value: '${ex['difficulty'] ?? 'beginner'}',
                           color: AppColors.violet,
                         ),
-                      const SizedBox(width: 8),
-                      if (ex['equipment'] != null)
-                        MacroChip(
-                          label: 'Equipment',
-                          value: ex['equipment'],
-                          color: AppColors.textMuted,
+                        _MiniBadge(
+                          label: 'Duration',
+                          value: '${ex['duration_mins'] ?? '—'} min',
+                          color: AppColors.info,
                         ),
-                    ],
-                  ),
+                        _MiniBadge(
+                          label: 'Cal/min',
+                          value: '${ex['calories_per_min'] ?? '—'}',
+                          color: AppColors.danger,
+                        ),
+                        if (ex['bp_safe'] == true)
+                          _MiniBadge(
+                            label: 'Safe',
+                            value: 'BP Safe',
+                            color: AppColors.success,
+                          ),
+                      ],
+                    ),
+                    if (ex['muscle_group'] != null)
+                      _SectionCard(
+                        title: 'Muscle Group',
+                        child: Text('${ex['muscle_group']}'),
+                      ),
+                    if (ex['equipment'] != null)
+                      _SectionCard(
+                        title: 'Equipment',
+                        child: Text('${ex['equipment']}'),
+                      ),
+                    _SectionCard(
+                      title: 'Instructions',
+                      child: Text(
+                        instructions,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: isDark ? Colors.white : Colors.black87,
+                          height: 1.7,
+                        ),
+                      ),
+                    ),
+                    if (ex['benefits'] != null)
+                      _SectionCard(
+                        title: 'Benefits',
+                        child: Text('${ex['benefits']}'),
+                      ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('✅ Mark as Completed'),
+                      ),
+                    ),
+                  ],
                 ),
-                if (ex['description'] != null)
-                  BsSection(
-                    title: '📋 Description',
-                    child: Text(
-                      ex['description'],
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isDark ? Colors.white : Colors.black87,
-                        height: 1.6,
-                      ),
-                    ),
-                  ),
-                if (instructions.isNotEmpty)
-                  BsSection(
-                    title: '👟 Instructions',
-                    child: Text(
-                      instructions,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isDark ? Colors.white : Colors.black87,
-                        height: 1.8,
-                      ),
-                    ),
-                  ),
-                if (ex['benefits'] != null)
-                  BsSection(
-                    title: '💪 Benefits',
-                    child: Text(
-                      ex['benefits'],
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: isDark ? Colors.white70 : Colors.black54,
-                        height: 1.6,
-                      ),
-                    ),
-                  ),
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.exercise,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                    ),
-                    child: const Text(
-                      '✅ Mark as Completed',
-                      style: TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
+                Positioned(
+                  bottom: 24,
+                  right: 20,
+                  child: TtsSpeakerButton(text: instructions),
                 ),
               ],
-            ),
-            Positioned(
-              bottom: 24,
-              right: 20,
-              child: TtsSpeakerButton(text: instructions),
-            ),
-          ],
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -1789,7 +1508,6 @@ class _LibraryTabState extends State<_LibraryTab> {
             ),
           ),
         ),
-
         SizedBox(
           height: 40,
           child: ListView(
@@ -1797,7 +1515,6 @@ class _LibraryTabState extends State<_LibraryTab> {
             padding: const EdgeInsets.symmetric(horizontal: 14),
             children: _cats.map((c) {
               final sel = c == _category;
-
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: GestureDetector(
@@ -1830,7 +1547,6 @@ class _LibraryTabState extends State<_LibraryTab> {
             }).toList(),
           ),
         ),
-
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
           child: Row(
@@ -1857,24 +1573,23 @@ class _LibraryTabState extends State<_LibraryTab> {
             ],
           ),
         ),
-
         Expanded(
           child: _loading
-              ? const LoadingView()
+              ? const Center(child: CircularProgressIndicator())
               : RefreshIndicator(
                   onRefresh: _load,
                   child: filtered.isEmpty
-                      ? const EmptyState(
-                          emoji: '🏋️',
+                      ? _SimpleEmptyCard(
+                          icon: '📚',
                           title: 'No exercises found',
-                          subtitle: 'Try different filters.',
+                          subtitle: 'Try different search or filters.',
+                          isDark: isDark,
                         )
                       : ListView.builder(
                           padding: const EdgeInsets.symmetric(horizontal: 14),
                           itemCount: filtered.length,
                           itemBuilder: (_, i) {
                             final ex = filtered[i];
-
                             return GestureDetector(
                               onTap: () =>
                                   _openExercise(ex as Map<String, dynamic>),
@@ -1907,15 +1622,7 @@ class _LibraryTabState extends State<_LibraryTab> {
                                         ),
                                         child: Center(
                                           child: Text(
-                                            {
-                                                  'cardio': '🏃',
-                                                  'strength': '💪',
-                                                  'yoga': '🧘',
-                                                  'flexibility': '🤸',
-                                                  'breathing': '🫁',
-                                                  'sports': '⚽',
-                                                }[ex['category']] ??
-                                                '🏋️',
+                                            _emojiForCategory(ex['category']),
                                             style:
                                                 const TextStyle(fontSize: 24),
                                           ),
@@ -1928,7 +1635,7 @@ class _LibraryTabState extends State<_LibraryTab> {
                                               CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              ex['name'] ?? '',
+                                              '${ex['name'] ?? ''}',
                                               style: TextStyle(
                                                 fontSize: 14,
                                                 fontWeight: FontWeight.w700,
@@ -1937,10 +1644,7 @@ class _LibraryTabState extends State<_LibraryTab> {
                                             ),
                                             const SizedBox(height: 4),
                                             Text(
-                                              (ex['muscle_group'] ??
-                                                      ex['description'] ??
-                                                      '')
-                                                  .toString(),
+                                              '${ex['muscle_group'] ?? ex['description'] ?? ''}',
                                               style: TextStyle(
                                                 fontSize: 11,
                                                 color: tm,
@@ -1951,41 +1655,29 @@ class _LibraryTabState extends State<_LibraryTab> {
                                             const SizedBox(height: 6),
                                             Wrap(
                                               spacing: 6,
+                                              runSpacing: 6,
                                               children: [
-                                                DifficultyChip(
-                                                  difficulty:
-                                                      ex['difficulty'] ?? 'easy',
+                                                _TinyTag(
+                                                  text:
+                                                      '${ex['difficulty'] ?? 'easy'}',
+                                                  bg: AppColors.violet
+                                                      .withOpacity(0.12),
+                                                  fg: AppColors.violet,
                                                 ),
                                                 if (ex['duration_mins'] != null)
-                                                  Container(
-                                                    padding: const EdgeInsets
-                                                        .symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 2,
-                                                    ),
-                                                    decoration: BoxDecoration(
-                                                      color: AppColors.info
-                                                          .withOpacity(0.1),
-                                                      borderRadius:
-                                                          BorderRadius.circular(
-                                                              100),
-                                                    ),
-                                                    child: Text(
-                                                      '${ex['duration_mins']} min',
-                                                      style: const TextStyle(
-                                                        fontSize: 10,
-                                                        fontWeight:
-                                                            FontWeight.w700,
-                                                        color: AppColors.info,
-                                                      ),
-                                                    ),
+                                                  _TinyTag(
+                                                    text:
+                                                        '${ex['duration_mins']} min',
+                                                    bg: AppColors.info
+                                                        .withOpacity(0.1),
+                                                    fg: AppColors.info,
                                                   ),
                                                 if (ex['bp_safe'] == true)
-                                                  const Text(
-                                                    '❤️',
-                                                    style: TextStyle(
-                                                      fontSize: 13,
-                                                    ),
+                                                  _TinyTag(
+                                                    text: 'BP Safe',
+                                                    bg: AppColors.success
+                                                        .withOpacity(0.12),
+                                                    fg: AppColors.success,
                                                   ),
                                               ],
                                             ),
@@ -2011,7 +1703,292 @@ class _LibraryTabState extends State<_LibraryTab> {
   }
 }
 
-// ── Shared helper widgets ─────────────────────────────────────────
+String _emojiForCategory(dynamic category) {
+  return {
+        'cardio': '🏃',
+        'strength': '💪',
+        'yoga': '🧘',
+        'flexibility': '🤸',
+        'breathing': '🫁',
+        'sports': '⚽',
+      }[category] ??
+      '🏋️';
+}
+
+class _HeaderHero extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String emoji;
+  final List<Color> colors;
+  final bool dark;
+
+  const _HeaderHero({
+    required this.title,
+    required this.subtitle,
+    required this.emoji,
+    required this.colors,
+    required this.dark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: colors),
+        borderRadius: BorderRadius.circular(22),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.18),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(emoji, style: const TextStyle(fontSize: 30)),
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Fraunces',
+                    fontSize: 20,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.88),
+                    fontSize: 12,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionCard extends StatelessWidget {
+  final String title;
+  final Widget child;
+
+  const _SectionCard({
+    required this.title,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final card = isDark ? AppColors.cardDark : Colors.white;
+    final brd = isDark ? const Color(0xFF1E3250) : Colors.grey.shade200;
+    final tp = isDark ? AppColors.textOnDark : AppColors.textPrimary;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: card,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: brd),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontFamily: 'Fraunces',
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: tp,
+            ),
+          ),
+          const SizedBox(height: 10),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+class _MetricWrap extends StatelessWidget {
+  final List<Widget> children;
+
+  const _MetricWrap({required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: children,
+    );
+  }
+}
+
+class _MiniBadge extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+
+  const _MiniBadge({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color.withOpacity(0.18)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: 10, color: color)),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 12,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TinyTag extends StatelessWidget {
+  final String text;
+  final Color bg;
+  final Color fg;
+
+  const _TinyTag({
+    required this.text,
+    required this.bg,
+    required this.fg,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(100),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w700,
+          color: fg,
+        ),
+      ),
+    );
+  }
+}
+
+class _SimpleEmptyCard extends StatelessWidget {
+  final String icon;
+  final String title;
+  final String subtitle;
+  final bool isDark;
+
+  const _SimpleEmptyCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final card = isDark ? AppColors.cardDark : Colors.white;
+    final brd = isDark ? const Color(0xFF1E3250) : Colors.grey.shade200;
+    final tp = isDark ? AppColors.textOnDark : AppColors.textPrimary;
+    final tm = isDark ? AppColors.textMutedDark : AppColors.textMuted;
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: card,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: brd),
+      ),
+      child: Column(
+        children: [
+          Text(icon, style: const TextStyle(fontSize: 36)),
+          const SizedBox(height: 10),
+          Text(
+            title,
+            style: TextStyle(
+              fontFamily: 'Fraunces',
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: tp,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: tm, height: 1.5),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SimpleInfoCard extends StatelessWidget {
+  final String icon;
+  final String title;
+  final String subtitle;
+  final bool isDark;
+
+  const _SimpleInfoCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _SimpleEmptyCard(
+      icon: icon,
+      title: title,
+      subtitle: subtitle,
+      isDark: isDark,
+    );
+  }
+}
+
 class _StatPill extends StatelessWidget {
   final String emoji;
   final String value;
@@ -2101,36 +2078,6 @@ class _LiveStat extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _LDot extends StatelessWidget {
-  final Color color;
-  final String label;
-
-  const _LDot(this.color, this.label);
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10,
-            color: AppColors.textMuted,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
     );
   }
 }

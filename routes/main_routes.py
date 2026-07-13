@@ -156,7 +156,7 @@ def dashboard():
     medicines_today = []
     if user.medicines:
         for med in user.medicines:
-            if not med.active:
+            if not getattr(med, 'active', True):
                 continue
             log = MedicineLog.query.filter_by(
                 medicine_id=med.id, log_date=today

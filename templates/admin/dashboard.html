@@ -1,35 +1,41 @@
-{% extends "base.html" %}
+{% extends "admin/base.html" %}
 {% block title %}Admin Dashboard | HealthTrack{% endblock %}
 {% block page_title %}Admin Dashboard{% endblock %}
-{% block content %}
-<style>
-.admin-hero{background:linear-gradient(135deg,#0d1b2e,#142d4c,#4f3b78);border-radius:var(--radius-lg);padding:26px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;}
-.hero-title{font-family:'Fraunces',serif;font-size:clamp(20px,3vw,30px);font-weight:900;margin-bottom:6px;}
-.nav-tabs{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;}
-.nav-tab{background:var(--card-bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:9px 18px;font-size:13px;font-weight:600;color:var(--text-muted);text-decoration:none;transition:all 0.18s;}
-.nav-tab.active{background:var(--navy);color:white;border-color:var(--navy);}
-.stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px;}
-@media(max-width:1000px){.stats-grid{grid-template-columns:repeat(3,1fr);}}
-@media(max-width:600px){.stats-grid{grid-template-columns:repeat(2,1fr);}}
-.sc{background:var(--card-bg);border-radius:var(--radius);padding:16px;border:1px solid var(--border);box-shadow:var(--shadow-sm);animation:fadeUp 0.4s ease both;}
-.sc-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-muted);margin-bottom:6px;}
-.sc-val{font-family:'DM Mono',monospace;font-size:24px;font-weight:500;line-height:1;}
-.main-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px;}
-@media(max-width:900px){.main-grid{grid-template-columns:1fr;}}
-.card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;}
-.card-hdr{padding:14px 20px;border-bottom:1px solid var(--border);}
-.card-title{font-family:'Fraunces',serif;font-size:16px;font-weight:700;color:var(--text-primary);}
-.user-row{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);font-size:13px;}
-.user-row:last-child{border-bottom:none;}
-.user-avatar{width:32px;height:32px;border-radius:8px;background:var(--accent-pale);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent-dark);flex-shrink:0;}
-.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:16px 20px;}
-.metric-item{text-align:center;background:var(--bg);border-radius:var(--radius-sm);padding:12px;}
-.metric-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--navy);}
-.metric-lbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;}
-.alert-row{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--border);font-size:13px;background:#fef2f2;}
-</style>
+{% block page_subtitle %}System overview and management{% endblock %}
 
-<div class="admin-hero animate-fadeIn">
+{% block extra_css %}
+<style>
+  .admin-hero{background:linear-gradient(135deg,#0d1b2e,#142d4c,#4f3b78);border-radius:var(--radius-lg);padding:26px 30px;color:white;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;}
+  .hero-title{font-family:'Fraunces',serif;font-size:clamp(20px,3vw,30px);font-weight:900;margin-bottom:6px;}
+  .nav-tabs{display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;}
+  .nav-tab{background:var(--card-bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:9px 18px;font-size:13px;font-weight:600;color:var(--text-muted);text-decoration:none;transition:all 0.18s;}
+  .nav-tab.active{background:var(--navy);color:white;border-color:var(--navy);}
+  .stats-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px;}
+  @media(max-width:1000px){.stats-grid{grid-template-columns:repeat(3,1fr);}}
+  @media(max-width:600px){.stats-grid{grid-template-columns:repeat(2,1fr);}}
+  .sc{background:var(--card-bg);border-radius:var(--radius);padding:16px;border:1px solid var(--border);box-shadow:var(--shadow-sm);}
+  .sc-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.7px;color:var(--text-muted);margin-bottom:6px;}
+  .sc-val{font-family:'DM Mono',monospace;font-size:24px;font-weight:500;line-height:1;}
+  .main-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:22px;}
+  @media(max-width:900px){.main-grid{grid-template-columns:1fr;}}
+  .card{background:var(--card-bg);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow-sm);overflow:hidden;}
+  .card-hdr{padding:14px 20px;border-bottom:1px solid var(--border);}
+  .card-title{font-family:'Fraunces',serif;font-size:16px;font-weight:700;color:var(--text-primary);}
+  .user-row{display:flex;align-items:center;gap:12px;padding:10px 20px;border-bottom:1px solid var(--border);font-size:13px;}
+  .user-row:last-child{border-bottom:none;}
+  .user-avatar{width:32px;height:32px;border-radius:8px;background:var(--accent-pale);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent-dark);flex-shrink:0;}
+  .metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:16px 20px;}
+  @media(max-width:700px){.metric-grid{grid-template-columns:repeat(2,1fr);}}
+  .metric-item{text-align:center;background:var(--bg);border-radius:var(--radius-sm);padding:12px;}
+  .metric-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:600;color:var(--navy);}
+  .metric-lbl{font-size:10px;color:var(--text-muted);text-transform:uppercase;}
+  .alert-row{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid var(--border);font-size:13px;background:#fef2f2;}
+  .empty-state{padding:24px;text-align:center;color:var(--text-muted);font-size:13px;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-hero">
   <div>
     <div class="hero-title">⚙️ Admin Dashboard</div>
     <div style="font-size:13px;opacity:0.75;">System overview and management</div>
@@ -43,13 +49,12 @@
   <a href="{{ url_for('admin.logs') }}" class="nav-tab">📜 Logs</a>
 </div>
 
-<!-- STATS -->
 <div class="stats-grid">
-  <div class="sc" style="border-top:3px solid var(--navy);"><div class="sc-lbl">Total Users</div><div class="sc-val">{{ total_users }}</div></div>
-  <div class="sc" style="border-top:3px solid var(--sage);"><div class="sc-lbl">Active Users</div><div class="sc-val" style="color:var(--sage);">{{ active_users }}</div></div>
-  <div class="sc" style="border-top:3px solid #3b82f6;"><div class="sc-lbl">Verified</div><div class="sc-val" style="color:#3b82f6;">{{ verified_users }}</div></div>
-  <div class="sc" style="border-top:3px solid #f59e0b;"><div class="sc-lbl">New Today</div><div class="sc-val" style="color:#f59e0b;">{{ new_today }}</div></div>
-  <div class="sc" style="border-top:3px solid var(--violet);"><div class="sc-lbl">New This Week</div><div class="sc-val" style="color:var(--violet);">{{ new_this_week }}</div></div>
+  <div class="sc" style="border-top:3px solid var(--navy);"><div class="sc-lbl">Total Users</div><div class="sc-val">{{ total_users or 0 }}</div></div>
+  <div class="sc" style="border-top:3px solid var(--sage);"><div class="sc-lbl">Active Users</div><div class="sc-val" style="color:var(--sage);">{{ active_users or 0 }}</div></div>
+  <div class="sc" style="border-top:3px solid #3b82f6;"><div class="sc-lbl">Verified</div><div class="sc-val" style="color:#3b82f6;">{{ verified_users or 0 }}</div></div>
+  <div class="sc" style="border-top:3px solid #f59e0b;"><div class="sc-lbl">New Today</div><div class="sc-val" style="color:#f59e0b;">{{ new_today or 0 }}</div></div>
+  <div class="sc" style="border-top:3px solid var(--violet);"><div class="sc-lbl">New This Week</div><div class="sc-val" style="color:var(--violet);">{{ new_this_week or 0 }}</div></div>
 </div>
 
 {% if recent_alerts %}
@@ -66,7 +71,6 @@
 {% endif %}
 
 <div class="main-grid">
-  <!-- Registration chart -->
   <div class="card">
     <div class="card-hdr"><div class="card-title">📈 Registrations (7 Days)</div></div>
     <div style="padding:16px 20px;">
@@ -74,70 +78,88 @@
     </div>
   </div>
 
-  <!-- Recent Users -->
   <div class="card">
     <div class="card-hdr"><div class="card-title">👥 Recent Users</div></div>
+    {% if recent_users %}
     {% for u in recent_users %}
     <div class="user-row">
-      <div class="user-avatar">{{ u.name[0]|upper }}</div>
+      <div class="user-avatar">{{ (u.name[0] if u.name else '?')|upper }}</div>
       <div style="flex:1;">
         <div style="font-weight:600;color:var(--text-primary);">{{ u.name }}</div>
         <div style="font-size:11px;color:var(--text-muted);">{{ u.email }}</div>
       </div>
       <span style="font-size:11px;color:var(--text-muted);">{{ u.created_at.strftime('%d %b') }}</span>
-      {% if u.is_admin %}<span style="background:#ede9fe;color:#7c3aed;border-radius:100px;padding:2px 8px;font-size:10px;font-weight:700;">Admin</span>{% endif %}
+      {% if u.is_admin %}
+      <span style="background:#ede9fe;color:#7c3aed;border-radius:100px;padding:2px 8px;font-size:10px;font-weight:700;">Admin</span>
+      {% endif %}
     </div>
     {% endfor %}
+    {% else %}
+    <div class="empty-state">No recent users.</div>
+    {% endif %}
   </div>
 </div>
 
-<!-- Platform metrics -->
 <div class="card" style="margin-bottom:22px;">
   <div class="card-hdr"><div class="card-title">📊 Platform Metrics</div></div>
   <div class="metric-grid">
-    <div class="metric-item"><div class="metric-val">{{ total_bp }}</div><div class="metric-lbl">BP Readings</div></div>
-    <div class="metric-item"><div class="metric-val">{{ total_weight }}</div><div class="metric-lbl">Weight Logs</div></div>
-    <div class="metric-item"><div class="metric-val">{{ total_water }}</div><div class="metric-lbl">Water Logs</div></div>
-    <div class="metric-item"><div class="metric-val">{{ total_docs }}</div><div class="metric-lbl">Documents</div></div>
-    <div class="metric-item" style="grid-column:span 4;"><div class="metric-val">{{ total_reports }}</div><div class="metric-lbl">Email Reports Sent</div></div>
+    <div class="metric-item"><div class="metric-val">{{ total_bp or 0 }}</div><div class="metric-lbl">BP Readings</div></div>
+    <div class="metric-item"><div class="metric-val">{{ total_weight or 0 }}</div><div class="metric-lbl">Weight Logs</div></div>
+    <div class="metric-item"><div class="metric-val">{{ total_water or 0 }}</div><div class="metric-lbl">Water Logs</div></div>
+    <div class="metric-item"><div class="metric-val">{{ total_docs or 0 }}</div><div class="metric-lbl">Documents</div></div>
+    <div class="metric-item" style="grid-column:span 4;"><div class="metric-val">{{ total_reports or 0 }}</div><div class="metric-lbl">Email Reports Sent</div></div>
   </div>
 </div>
 
-<!-- Recent Admin Logs -->
 <div class="card">
   <div class="card-hdr"><div class="card-title">📜 Recent Activity</div></div>
   {% if recent_logs %}
-    {% for log in recent_logs[:8] %}
-    <div class="user-row">
-      <span style="font-size:16px;">📝</span>
-      <span style="flex:1;">{{ log.action }}</span>
-      <span style="font-size:11px;color:var(--text-muted);">{{ log.created_at.strftime('%d %b %I:%M %p') }}</span>
-    </div>
-    {% endfor %}
+  {% for log in recent_logs[:8] %}
+  <div class="user-row">
+    <span style="font-size:16px;">📝</span>
+    <span style="flex:1;">{{ log.action }}</span>
+    <span style="font-size:11px;color:var(--text-muted);">{{ log.created_at.strftime('%d %b %I:%M %p') }}</span>
+  </div>
+  {% endfor %}
   {% else %}
-  <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px;">No activity yet.</div>
+  <div class="empty-state">No activity yet.</div>
   {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-const regData = {{ reg_chart | tojson }};
-new Chart(document.getElementById('regChart'), {
-  type: 'bar',
-  data: {
-    labels: regData.map(d => d.day),
-    datasets: [{ label: 'New Users', data: regData.map(d => d.count),
-      backgroundColor: 'rgba(97,179,144,0.75)', borderRadius: 8 }]
-  },
-  options: {
-    responsive: true,
-    plugins: { legend: { display: false } },
-    scales: {
-      x: { grid:{color:'rgba(0,0,0,0.04)'}, ticks:{color:'#6b7280',font:{size:11}} },
-      y: { beginAtZero:true, ticks:{stepSize:1,color:'#6b7280',font:{size:11}}, grid:{color:'rgba(0,0,0,0.04)'} }
-    }
+  const regData = {{ reg_chart | default([], true) | tojson }};
+  const regCanvas = document.getElementById('regChart');
+
+  if (regCanvas) {
+    new Chart(regCanvas, {
+      type: 'bar',
+      data: {
+        labels: regData.map(d => d.day),
+        datasets: [{
+          label: 'New Users',
+          data: regData.map(d => d.count),
+          backgroundColor: 'rgba(97,179,144,0.75)',
+          borderRadius: 8
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: {
+            grid:{color:'rgba(0,0,0,0.04)'},
+            ticks:{color:'#6b7280',font:{size:11}}
+          },
+          y: {
+            beginAtZero:true,
+            ticks:{stepSize:1,color:'#6b7280',font:{size:11}},
+            grid:{color:'rgba(0,0,0,0.04)'}
+          }
+        }
+      }
+    });
   }
-});
 </script>
 {% endblock %}
