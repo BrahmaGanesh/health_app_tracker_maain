@@ -123,15 +123,23 @@ def dashboard():
 
     # ── Medicines today ───────────────────────────────────────
     meds_today = []
+    meds_today = []
+
     for med in user.medicines:
-        if not med.active: continue
+        if not med.is_active:
+            continue
+
         log = MedicineLog.query.filter_by(
-            medicine_id=med.id, log_date=today
+            medicine_id=med.id,
+            log_date=today
         ).first()
+
         meds_today.append({
-            "id":     med.id, "name": med.name,
-            "dosage": med.dosage, "timing": med.timing,
-            "taken":  log.taken if log else False,
+            "id": med.id,
+            "name": med.name,
+            "dosage": med.dosage,
+            "timing": med.timing,
+            "taken": log.taken if log else False,
         })
 
     meds_taken = sum(1 for m in meds_today if m["taken"])

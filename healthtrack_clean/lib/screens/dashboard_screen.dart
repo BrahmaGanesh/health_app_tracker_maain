@@ -170,41 +170,37 @@ class _DashboardScreenState extends State<DashboardScreen>
     return double.tryParse('$value') ?? fallback;
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final auth = context.watch<AuthService>();
+@override
+Widget build(BuildContext context) {
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  final auth = context.watch<AuthService>();
 
-    return Scaffold(
-      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      bottomNavigationBar: const AppBottomNav(currentIndex: 0),
-      body: SafeArea(
-        bottom: false,
-        child: _loading
-            ? const LoadingView()
-            : FadeTransition(
-                opacity: _fadeAnim,
-                child: RefreshIndicator(
-                  onRefresh: _load,
-                  color: AppColors.sage,
-                  displacement: 80,
-                  child: CustomScrollView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      _buildSliverAppBar(auth, isDark),
-                      SliverToBoxAdapter(
-                        child: _hasError
-                            ? _buildErrorBody(isDark)
-                            : _buildBody(isDark),
-                      ),
-                    ],
+  return Scaffold(
+    backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+    bottomNavigationBar: const AppBottomNav(currentIndex: 0),
+    body: SafeArea(
+      bottom: false,
+      child: _loading
+          ? const LoadingView()
+          : RefreshIndicator(
+              onRefresh: _load,
+              color: AppColors.sage,
+              displacement: 80,
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
+                  _buildSliverAppBar(auth, isDark),
+                  SliverToBoxAdapter(
+                    child: _hasError
+                        ? _buildErrorBody(isDark)
+                        : _buildBody(isDark),
                   ),
-                ),
+                ],
               ),
-      ),
-    );
-  }
-
+            ),
+    ),
+  );
+}
   Widget _buildSliverAppBar(AuthService auth, bool isDark) {
     final score = _map(_data['health_score']);
     final String rawName = _text(
