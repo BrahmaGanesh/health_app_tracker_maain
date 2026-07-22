@@ -379,8 +379,20 @@ class ApiService {
   // ═══════════════════════════════════════════════════════════
   // APPOINTMENTS (Module 10)
   // ═══════════════════════════════════════════════════════════
-  Future<ApiResponse> getAppointments({int? memberId, bool upcomingOnly = false}) =>
-      get('/appointments/', query: {if (memberId != null) 'member_id': memberId, 'upcoming': upcomingOnly});
+  // ═══════════════════════════════════════════════════════════
+  // APPOINTMENTS (Module 10 — Complete)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getAppointmentDashboard({int? memberId}) =>
+      get('/appointments/dashboard', query: memberId != null ? {'member_id': memberId} : null);
+
+  Future<ApiResponse> getAppointments({String? status, String? apptType, String? search, String? section, int? memberId}) =>
+      get('/appointments/', query: {
+        if (status != null)    'status':    status,
+        if (apptType != null)  'appt_type': apptType,
+        if (search != null)    'search':    search,
+        if (section != null)   'section':   section,
+        if (memberId != null)  'member_id': memberId,
+      });
 
   Future<ApiResponse> addAppointment(Map<String, dynamic> data) => post('/appointments/', data: data);
 
@@ -388,7 +400,15 @@ class ApiService {
 
   Future<ApiResponse> deleteAppointment(int id) => delete('/appointments/$id');
 
-  Future<ApiResponse> markAppointmentDone(int id) => post('/appointments/$id/complete');
+  Future<ApiResponse> markAppointmentDone(int id) => post('/appointments/$id/status', data: {'action': 'complete'});
+
+  Future<ApiResponse> cancelAppointment(int id) => post('/appointments/$id/status', data: {'action': 'cancel'});
+
+  Future<ApiResponse> markAppointmentMissed(int id) => post('/appointments/$id/status', data: {'action': 'missed'});
+
+  Future<ApiResponse> getAppointmentSettings() => get('/appointments/settings');
+
+  Future<ApiResponse> saveAppointmentSettings(Map<String, dynamic> data) => post('/appointments/settings', data: data);
 
   // ═══════════════════════════════════════════════════════════
   // DOCUMENTS (Module 11)
@@ -434,8 +454,31 @@ class ApiService {
   // ═══════════════════════════════════════════════════════════
   // HEALTH TIMELINE (Module 20)
   // ═══════════════════════════════════════════════════════════
-  Future<ApiResponse> getTimeline({int? memberId, String? category, int page = 1}) =>
-      get('/timeline/', query: {if (memberId != null) 'member_id': memberId, if (category != null) 'category': category, 'page': page});
+  // ═══════════════════════════════════════════════════════════
+  // HEALTH TIMELINE (Module 20 — Complete)
+  // ═══════════════════════════════════════════════════════════
+  Future<ApiResponse> getTimelineSummary({int? memberId}) =>
+      get('/timeline/summary', query: memberId != null ? {'member_id': memberId} : null);
+
+  Future<ApiResponse> getTimeline({int? memberId, String? category, String? search, String sort = 'newest', int page = 1}) =>
+      get('/timeline/', query: {
+        if (memberId != null)   'member_id': memberId,
+        if (category != null)   'category':  category,
+        if (search != null)     'search':    search,
+        'sort': sort, 'page': page,
+      });
+
+  Future<ApiResponse> getTimelineCalendar({required int year, required int month, int? memberId}) =>
+      get('/timeline/calendar', query: {'year': year, 'month': month, if (memberId != null) 'member_id': memberId});
+
+  Future<ApiResponse> getTimelineDay({required String date, int? memberId}) =>
+      get('/timeline/day', query: {'date': date, if (memberId != null) 'member_id': memberId});
+
+  Future<ApiResponse> getFamilyTimeline({int page = 1}) =>
+      get('/timeline/family', query: {'page': page});
+
+  Future<ApiResponse> deleteTimelineEvent(int id) =>
+      delete('/timeline/$id');
 
   // ═══════════════════════════════════════════════════════════
   // AI ASSISTANT (Module 19)

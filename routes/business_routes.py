@@ -6,8 +6,7 @@ from flask import Blueprint, render_template, redirect, url_for, make_response, 
 from flask_login import login_required, current_user
 
 from extensions import db
-from models import User, now_ist, today_ist
-from models_new_modules import UserSubscription
+from models import User, now_ist, today_ist , UserSubscription
 
 business_bp = Blueprint("business", __name__, url_prefix="/business")
 

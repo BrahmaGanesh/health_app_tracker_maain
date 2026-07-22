@@ -17,7 +17,7 @@ from models import now_ist, today_ist   # reuse IST helpers
 # MODULE 4 — MEDICINE MANAGEMENT
 # ════════════════════════════════════════════════════════════════
 
-class Medicine(db.Model):
+class MedicineLog(db.Model):
     __tablename__ = "medicines"
     id                = db.Column(db.Integer, primary_key=True)
     user_id           = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)

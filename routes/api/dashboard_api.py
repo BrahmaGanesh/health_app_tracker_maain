@@ -11,11 +11,11 @@ from extensions import db
 from models import (
     HealthMetric, MealPlan, MealItem, NutritionDailyLog,
     Alert, WeeklyInsight,
-    SleepLog, StepLog, DailyHealthScore
+    SleepLog, StepLog, DailyHealthScore, Medicine, MedicineLog
 )
 
 # Import new module models separately
-from models_new_modules import Medicine, MedicineLog
+# from models_new_modules import
 
 dashboard_api_bp = Blueprint("dashboard_api", __name__)
 

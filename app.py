@@ -11,13 +11,13 @@ from flask import Flask, render_template, jsonify, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import get_config
-
-print(f"IST Time: {datetime.now(ZoneInfo('Asia/Kolkata'))}")
-
 from extensions import (
     db, bcrypt, login_manager, migrate, mail,
     cache, cors, jwt, csrf
 )
+
+print(os.environ.get("DATABASE_URL"))
+print(f"IST Time: {datetime.now(ZoneInfo('Asia/Kolkata'))}")
 
 
 # ------------------------------------------------------------
@@ -35,13 +35,16 @@ def create_app(config_class=None):
 
     # Proxy fix (Render / deployment safe)
     app.wsgi_app = ProxyFix(
-        app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1
+        app.wsgi_app,
+        x_for=1,
+        x_proto=1,
+        x_host=1,
+        x_prefix=1,
     )
 
     config_class = config_class or get_config()
     app.config.from_object(config_class)
 
-    # Keep only scheme, not full URL
     app.config["PREFERRED_URL_SCHEME"] = "https"
 
     # --------------------------------------------------------
@@ -53,17 +56,19 @@ def create_app(config_class=None):
     migrate.init_app(app, db)
     mail.init_app(app)
     cache.init_app(app)
+
+    cors.init_app(
+        app,
+        resources={
+            r"/api/*": {
+                "origins": "*",
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                "allow_headers": ["Content-Type", "Authorization", "X-CSRFToken"],
+            }
+        },
+    )
+
     jwt.init_app(app)
-
-    # CORS — allow APK / API access
-    cors.init_app(app, resources={
-        r"/api/*": {
-            "origins": "*",
-            "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization", "X-CSRFToken"]
-        }
-    })
-
     csrf.init_app(app)
 
     # --------------------------------------------------------
@@ -107,7 +112,7 @@ def create_app(config_class=None):
         }), 401
 
     # --------------------------------------------------------
-    # CSRF FIX
+    # CSRF FOR API
     # --------------------------------------------------------
     @app.before_request
     def disable_csrf_for_api():
@@ -135,7 +140,6 @@ def create_app(config_class=None):
     from routes.document_routes import document_bp
     from routes.admin_routes import admin_bp
     from routes.notification_routes import notification_bp
-    # NEW: Business dashboard (subscriber + payment tracking)
     from routes.business_routes import business_bp
 
     app.register_blueprint(auth_bp, url_prefix="/auth")
@@ -156,8 +160,7 @@ def create_app(config_class=None):
     app.register_blueprint(document_bp, url_prefix="/documents")
     app.register_blueprint(admin_bp, url_prefix="/admin")
     app.register_blueprint(notification_bp, url_prefix="/notifications")
-    # NEW: Business blueprint
-    app.register_blueprint(business_bp)  # /business/
+    app.register_blueprint(business_bp)
 
     # --------------------------------------------------------
     # API BLUEPRINTS
@@ -173,8 +176,11 @@ def create_app(config_class=None):
     from routes.api.medicine_api import medicine_api_bp
     from routes.api.health_modules_api import modules_api_bp
     from routes.api.ai_assistant_api import ai_bp
+    from routes.api.document_api import document_api_bp
+    from routes.api.lab_api import lab_api_bp
+    from routes.api.appointment_api import appointment_api_bp
+    from routes.api.timeline_api import timeline_api_bp
 
-    # Exempt API blueprints from CSRF
     csrf.exempt(auth_api_bp)
     csrf.exempt(dashboard_api_bp)
     csrf.exempt(tracker_api_bp)
@@ -186,6 +192,10 @@ def create_app(config_class=None):
     csrf.exempt(medicine_api_bp)
     csrf.exempt(modules_api_bp)
     csrf.exempt(ai_bp)
+    csrf.exempt(document_api_bp)
+    csrf.exempt(lab_api_bp)
+    csrf.exempt(appointment_api_bp)
+    csrf.exempt(timeline_api_bp)
     csrf.exempt(google_auth_bp)
 
     app.register_blueprint(auth_api_bp, url_prefix="/api/v1/auth")
@@ -199,7 +209,10 @@ def create_app(config_class=None):
     app.register_blueprint(medicine_api_bp, url_prefix="/api/v1/medicines")
     app.register_blueprint(modules_api_bp, url_prefix="/api/v1")
     app.register_blueprint(ai_bp, url_prefix="/api/v1/ai-assistant")
-    # app.register_blueprint(document_bp, url_prefix="/api/v1/documents")
+    app.register_blueprint(document_api_bp, url_prefix="/api/v1/documents")
+    app.register_blueprint(lab_api_bp, url_prefix="/api/v1/lab-tests")
+    app.register_blueprint(appointment_api_bp, url_prefix="/api/v1/appointments")
+    app.register_blueprint(timeline_api_bp, url_prefix="/api/v1/timeline")
 
     # --------------------------------------------------------
     # GLOBAL TEMPLATE VARIABLES
@@ -308,31 +321,23 @@ def create_app(config_class=None):
             "version": app.config.get("APP_VERSION")
         })
 
-        # --------------------------------------------------------
-    # DB INIT - IMPROVED TO PREVENT DUPLICATE TABLES
+    # --------------------------------------------------------
+    # DB INIT
     # --------------------------------------------------------
     with app.app_context():
         try:
-            # Import models to register them with SQLAlchemy metadata
-            # This ensures all tables are known before creating them
-            from models import User  # noqa: F401
-            
-            # Import new modules - they reference User table
-            # Only import once to prevent duplicate table definitions
-            import sys
-            if 'models_new_modules' not in sys.modules:
-                from models_new_modules import (
-                    Medicine, MedicineLog,
-                    LabTest, DoctorVisit, Appointment,
-                    EmergencyCard, TrustedContact,
-                    Habit, HabitLog,
-                    UserSubscription, HealthTimelineEvent,
-                )
-            
-            # Create all tables at once
+            from models import (
+                User,
+                Medicine, MedicineLog,
+                LabTest, DoctorVisit, Appointment,
+                EmergencyCard, TrustedContact,
+                Habit, HabitLog,
+                UserSubscription, HealthTimelineEvent,
+            )
+
             db.create_all()
             print("✓ Database initialized successfully")
-            
+
         except Exception as e:
             print("DB init error:", e)
 

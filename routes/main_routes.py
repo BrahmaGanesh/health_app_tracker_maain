@@ -11,9 +11,10 @@ from sqlalchemy import func
 from extensions import db
 from models import (
     HealthMetric, MealPlan, MealItem, Recipe,
-    NutritionDailyLog, Alert, WeeklyInsight,
+    NutritionDailyLog, Alert, WeeklyInsight
 )
-from models_new_modules import ( MedicineLog,Medicine, UserSubscription )
+from models import MedicineLog, Medicine, UserSubscription
+# from models_new_modules import ( MedicineLog,Medicine, UserSubscription )
 
 main_bp = Blueprint("main", __name__)
 

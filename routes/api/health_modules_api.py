@@ -8,16 +8,10 @@ from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
-from models import now_ist, today_ist, HabitLog, User
-from models_new_modules import (
-    LabTest,
-    DoctorVisit,
-    Appointment,
-    EmergencyCard,
-    TrustedContact,
-    UserSubscription,
-    HealthTimelineEvent,
-)
+from models import now_ist, today_ist, HabitLog, User , LabTest,DoctorVisit,Appointment,EmergencyCard,TrustedContact,UserSubscription,HealthTimelineEvent
+# from models_new_modules import (
+#
+# )
 
 import os
 import base64
