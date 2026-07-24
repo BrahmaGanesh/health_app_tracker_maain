@@ -208,8 +208,8 @@ def add_member_metric(mid):
         family_member_id=mid,
         user_id=uid,
         metric_type=mtype,
-        value_1=d.get("value_1"),
-        value_2=d.get("value_2"),
+        value1=d.get("value_1"),
+        value2=d.get("value_2"),
         notes=d.get("notes"),
         recorded_at=now_ist(),
     )

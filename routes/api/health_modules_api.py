@@ -110,7 +110,7 @@ def delete_lab_test(tid):
 @jwt_required()
 def lab_test_types():
     uid = get_jwt_identity()
-    rows = db.session.query(LabTest.test_type).filter_by(user_id=uid).distinct().all()
+    rows = db.session.query(LabTest.test_category).filter_by(user_id=uid).distinct().all()
     return jsonify({"success": True, "data": {"types": [r[0] for r in rows]}})
 
 

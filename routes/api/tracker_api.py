@@ -4,20 +4,16 @@
 # EXACT timestamps saved on every entry
 # ============================================================
 
-
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_current_user
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from sqlalchemy import func
-
 
 from extensions import db
 from models import HealthMetric, SleepLog, StepLog, HeartRateLog, Alert
 
-
 tracker_api_bp = Blueprint("tracker_api", __name__)
-
 
 IST = ZoneInfo("Asia/Kolkata")
 
@@ -42,13 +38,12 @@ def err(msg="Error", code=400):
 
 
 # ── HELPER: fire push alert for bad readings ──────────────────
-def _check_and_push(user, metric_type, value_1, value_2=None):
+def _check_and_push(user, metric_type, value1, value2=None):
     """Auto-create alert and push notification for threshold violations."""
-    from utils.firebase_push import send_push_to_user
     from utils.reminder_engine import create_alert_notification
 
-    if metric_type == "bp" and value_1 and value_2:
-        s, d = float(value_1), float(value_2)
+    if metric_type == "bp" and value1 is not None and value2 is not None:
+        s, d = float(value1), float(value2)
         if s >= 180 or d >= 120:
             create_alert_notification(
                 user, "emergency", "bp",
@@ -64,12 +59,12 @@ def _check_and_push(user, metric_type, value_1, value_2=None):
                 sound="health_alert"
             )
 
-    elif metric_type == "sugar" and value_1:
-        if float(value_1) >= 200:
+    elif metric_type == "sugar" and value1 is not None:
+        if float(value1) >= 200:
             create_alert_notification(
                 user, "warning", "sugar",
                 "⚠️ High Blood Sugar",
-                f"Fasting sugar {int(float(value_1))} mg/dL is high. Consult your doctor.",
+                f"Fasting sugar {int(float(value1))} mg/dL is high. Consult your doctor.",
                 sound="health_alert"
             )
 
@@ -77,7 +72,6 @@ def _check_and_push(user, metric_type, value_1, value_2=None):
 # ════════════════════════════════════════════════════════════
 # BLOOD PRESSURE
 # ════════════════════════════════════════════════════════════
-
 
 @tracker_api_bp.route("/bp", methods=["POST"])
 @jwt_required()
@@ -101,18 +95,18 @@ def add_bp():
         return err("Valid systolic and diastolic required", 422)
 
     pulse_val = None
-    if pulse:
+    if pulse not in (None, "", 0, "0"):
         try:
             pulse_val = float(pulse)
         except (TypeError, ValueError):
-            pass
+            pulse_val = None
 
     m = HealthMetric(
         user_id=user.id,
         metric_type="bp",
-        value_1=sys_val,
-        value_2=dia_val,
-        value_3=pulse_val,
+        value1=sys_val,
+        value2=dia_val,
+        value3=pulse_val,
         unit="mmHg",
         notes=notes or None,
         source="manual",
@@ -143,8 +137,8 @@ def get_bp():
 
     avg_sys = avg_dia = None
     if readings:
-        sys_vals = [r.value_1 for r in readings if r.value_1 is not None]
-        dia_vals = [r.value_2 for r in readings if r.value_2 is not None]
+        sys_vals = [r.value1 for r in readings if r.value1 is not None]
+        dia_vals = [r.value2 for r in readings if r.value2 is not None]
         if sys_vals:
             avg_sys = round(sum(sys_vals) / len(sys_vals), 0)
         if dia_vals:
@@ -180,7 +174,6 @@ def delete_bp(metric_id):
 # WEIGHT
 # ════════════════════════════════════════════════════════════
 
-
 @tracker_api_bp.route("/weight", methods=["POST"])
 @jwt_required()
 def add_weight():
@@ -197,7 +190,7 @@ def add_weight():
     m = HealthMetric(
         user_id=user.id,
         metric_type="weight",
-        value_1=w,
+        value1=w,
         unit="kg",
         notes=data.get("notes", "") or None,
         source="manual",
@@ -232,13 +225,13 @@ def get_weight():
 
     change = None
     if len(readings) >= 2:
-        change = round(readings[-1].value_1 - readings[0].value_1, 1)
+        change = round(readings[-1].value1 - readings[0].value1, 1)
 
     goals = user.goals
     progress_pct = 0
     if goals and goals.target_weight_kg and goals.start_weight_kg and latest:
         diff = goals.start_weight_kg - goals.target_weight_kg
-        done = goals.start_weight_kg - latest.value_1
+        done = goals.start_weight_kg - latest.value1
         if diff != 0:
             progress_pct = max(0, min(100, int(done / diff * 100)))
 
@@ -257,7 +250,6 @@ def get_weight():
 # WATER
 # ════════════════════════════════════════════════════════════
 
-
 @tracker_api_bp.route("/water", methods=["POST"])
 @jwt_required()
 def add_water():
@@ -274,7 +266,7 @@ def add_water():
     m = HealthMetric(
         user_id=user.id,
         metric_type="water",
-        value_1=amount,
+        value1=amount,
         unit="litres",
         source="manual",
         recorded_at=now_ist()
@@ -294,7 +286,7 @@ def get_water_today():
         HealthMetric.user_id == user.id,
         HealthMetric.metric_type == "water",
         func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value_1)).scalar() or 0
+    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
 
     logs = HealthMetric.query.filter(
         HealthMetric.user_id == user.id,
@@ -303,7 +295,7 @@ def get_water_today():
     ).order_by(HealthMetric.recorded_at.desc()).all()
 
     target = user.goals.target_water_litres if user.goals else 2.5
-    pct = min(100, int((total / target) * 100)) if target else 0
+    pct = min(100, int((float(total) / target) * 100)) if target else 0
 
     week = []
     for i in range(6, -1, -1):
@@ -312,18 +304,19 @@ def get_water_today():
             HealthMetric.user_id == user.id,
             HealthMetric.metric_type == "water",
             func.date(HealthMetric.recorded_at) == d
-        ).with_entities(func.sum(HealthMetric.value_1)).scalar() or 0
+        ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
+
         week.append({
             "day": d.strftime("%a"),
             "date": str(d),
-            "litres": round(t, 2)
+            "litres": round(float(t), 2)
         })
 
     return ok({
-        "today_total": round(total, 2),
+        "today_total": round(float(total), 2),
         "target": target,
         "pct": pct,
-        "goal_achieved": total >= target,
+        "goal_achieved": float(total) >= target,
         "logs": [r.to_dict() for r in logs],
         "week": week,
     })
@@ -332,7 +325,6 @@ def get_water_today():
 # ════════════════════════════════════════════════════════════
 # BLOOD SUGAR
 # ════════════════════════════════════════════════════════════
-
 
 @tracker_api_bp.route("/sugar", methods=["POST"])
 @jwt_required()
@@ -344,11 +336,12 @@ def add_sugar():
     post_meal = data.get("post_meal")
     notes = data.get("notes", "")
 
-    if not fasting and not post_meal:
+    if fasting in (None, "") and post_meal in (None, ""):
         return err("At least one reading required", 422)
 
     f_val = p_val = None
-    if fasting:
+
+    if fasting not in (None, ""):
         try:
             f_val = float(fasting)
             if not (20 <= f_val <= 600):
@@ -356,7 +349,7 @@ def add_sugar():
         except (TypeError, ValueError):
             return err("Invalid fasting value", 422)
 
-    if post_meal:
+    if post_meal not in (None, ""):
         try:
             p_val = float(post_meal)
             if not (20 <= p_val <= 800):
@@ -367,9 +360,9 @@ def add_sugar():
     m = HealthMetric(
         user_id=user.id,
         metric_type="sugar",
-        value_1=f_val,
-        value_2=p_val,
-        unit="mg_dL",
+        value1=f_val,
+        value2=p_val,
+        unit="mg/dL",
         notes=notes or None,
         source="manual",
         recorded_at=now_ist()
@@ -397,8 +390,9 @@ def get_sugar():
 
     latest = readings[0] if readings else None
     status = "No Reading"
-    if latest and latest.value_1:
-        f = latest.value_1
+
+    if latest and latest.value1 is not None:
+        f = latest.value1
         if f < 100:
             status = "Normal"
         elif f < 126:
@@ -416,7 +410,6 @@ def get_sugar():
 # ════════════════════════════════════════════════════════════
 # SLEEP
 # ════════════════════════════════════════════════════════════
-
 
 @tracker_api_bp.route("/sleep", methods=["POST"])
 @jwt_required()
@@ -505,7 +498,6 @@ def get_sleep():
 # STEPS
 # ════════════════════════════════════════════════════════════
 
-
 @tracker_api_bp.route("/steps", methods=["POST"])
 @jwt_required()
 def add_steps():
@@ -536,7 +528,6 @@ def add_steps():
     existing = StepLog.query.filter_by(user_id=user.id, log_date=log_date).first()
     if existing:
         sl = existing
-        sl.steps = steps
     else:
         sl = StepLog(user_id=user.id, log_date=log_date, goal_steps=goal_steps)
         db.session.add(sl)
@@ -571,8 +562,8 @@ def get_steps():
     today_steps = today_log.steps if today_log else 0
     today_pct = min(100, int(today_steps / goal * 100)) if goal else 0
 
-    h = user.health_profile.height_cm if user.health_profile else 170
-    w = user.health_profile.current_weight_kg if user.health_profile else 70
+    h = user.health_profile.height_cm if user.health_profile and user.health_profile.height_cm else 170
+    w = user.health_profile.current_weight_kg if user.health_profile and user.health_profile.current_weight_kg else 70
     today_cal = int((today_steps / 100) * (3.5 * w * 3.5 / 200))
     today_dist = round(today_steps * (h * 0.414 / 100) / 1000, 2)
 
@@ -590,7 +581,6 @@ def get_steps():
 # ════════════════════════════════════════════════════════════
 # HEART RATE
 # ════════════════════════════════════════════════════════════
-
 
 @tracker_api_bp.route("/heart-rate", methods=["POST"])
 @jwt_required()
@@ -647,7 +637,6 @@ def get_heart_rate():
 # DELETE ANY METRIC
 # ════════════════════════════════════════════════════════════
 
-
 @tracker_api_bp.route("/<string:metric_type>/<int:metric_id>", methods=["DELETE"])
 @jwt_required()
 def delete_metric(metric_type, metric_id):
@@ -668,11 +657,9 @@ def delete_metric(metric_type, metric_id):
 # SUMMARY (All metrics for dashboard)
 # ════════════════════════════════════════════════════════════
 
-
 @tracker_api_bp.route("/summary/today", methods=["GET"])
 @jwt_required()
 def today_summary():
-    """Return all today's metrics in one call for APK dashboard."""
     user = get_current_user()
     today = today_ist()
 
@@ -690,7 +677,7 @@ def today_summary():
         HealthMetric.user_id == user.id,
         HealthMetric.metric_type == "water",
         func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value_1)).scalar() or 0
+    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
 
     steps_today = StepLog.query.filter_by(user_id=user.id, log_date=today).first()
     sleep_today = SleepLog.query.filter_by(user_id=user.id, log_date=today).first()
@@ -736,29 +723,24 @@ def today_summary():
 # AI HEALTH CHAT
 # ════════════════════════════════════════════════════════════
 
-
 @tracker_api_bp.route("/ai/chat", methods=["POST"])
 @jwt_required()
 def ai_health_chat():
     from utils.gemini_ai import ask_gemini
-    
+
     user = get_current_user()
     data = request.get_json() or {}
     message = data.get("message", "")
-    
+
     if not message:
         return err("Message required", 422)
-    
-    # Extract conversation history
+
     history = data.get("history", [])
-    
-    # Pass user context for personalized responses
     response = ask_gemini(message, user=user, history=history)
-    
+
     if response["success"]:
         return ok({
             "reply": response["reply"],
             "user_message": message
         })
-    else:
-        return err(response["reply"], 500)
+    return err(response["reply"], 500)
