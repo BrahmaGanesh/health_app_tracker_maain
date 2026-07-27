@@ -3,8 +3,8 @@
 # BP, Weight, Water, Sugar, Sleep, Steps, Heart Rate
 # EXACT timestamps saved on every entry
 # IMPORTANT:
-# Replace METRIC_V1 / METRIC_V2 / METRIC_V3 with actual
-# HealthMetric model column names from models.py
+# HealthMetric model columns:
+#   user_id, metric_type, value1, value2, value3, unit, source, notes, recorded_at
 # ============================================================
 
 from flask import Blueprint, request, jsonify
@@ -19,17 +19,6 @@ from models import HealthMetric, SleepLog, StepLog, HeartRateLog
 tracker_api_bp = Blueprint("tracker_api", __name__)
 
 IST = ZoneInfo("Asia/Kolkata")
-
-# ============================================================
-# CHANGE THESE 3 CONSTANTS TO MATCH models.py EXACTLY
-# Example only:
-# METRIC_V1 = "value"
-# METRIC_V2 = "value_secondary"
-# METRIC_V3 = "value_tertiary"
-# ============================================================
-METRIC_V1 = "REPLACE_WITH_REAL_FIELD_1"
-METRIC_V2 = "REPLACE_WITH_REAL_FIELD_2"
-METRIC_V3 = "REPLACE_WITH_REAL_FIELD_3"
 
 
 def now_ist():
@@ -54,27 +43,26 @@ def err(msg="Error", code=400):
 def _hm_kwargs(v1=None, v2=None, v3=None):
     data = {}
     if v1 is not None:
-        data[METRIC_V1] = v1
+        data["value1"] = v1
     if v2 is not None:
-        data[METRIC_V2] = v2
+        data["value2"] = v2
     if v3 is not None:
-        data[METRIC_V3] = v3
+        data["value3"] = v3
     return data
 
 
 def _hm_get(metric, which=1, default=None):
-    field = {1: METRIC_V1, 2: METRIC_V2, 3: METRIC_V3}.get(which)
+    field = {1: "value1", 2: "value2", 3: "value3"}.get(which)
     if not field:
         return default
     return getattr(metric, field, default)
 
 
 def _hm_sum_expr(which=1):
-    field = {1: METRIC_V1, 2: METRIC_V2, 3: METRIC_V3}.get(which)
+    field = {1: "value1", 2: "value2", 3: "value3"}.get(which)
     return getattr(HealthMetric, field)
 
 
-# ── HELPER: fire push alert for bad readings ──────────────────
 def _check_and_push(user, metric_type, value1, value2=None):
     from utils.reminder_engine import create_alert_notification
 
@@ -104,10 +92,6 @@ def _check_and_push(user, metric_type, value1, value2=None):
                 sound="health_alert"
             )
 
-
-# ════════════════════════════════════════════════════════════
-# BLOOD PRESSURE
-# ════════════════════════════════════════════════════════════
 
 @tracker_api_bp.route("/bp", methods=["POST"])
 @jwt_required()
@@ -203,10 +187,6 @@ def delete_bp(metric_id):
     return ok(msg="BP reading deleted")
 
 
-# ════════════════════════════════════════════════════════════
-# WEIGHT
-# ════════════════════════════════════════════════════════════
-
 @tracker_api_bp.route("/weight", methods=["POST"])
 @jwt_required()
 def add_weight():
@@ -284,10 +264,6 @@ def get_weight():
     })
 
 
-# ════════════════════════════════════════════════════════════
-# WATER
-# ════════════════════════════════════════════════════════════
-
 @tracker_api_bp.route("/water", methods=["POST"])
 @jwt_required()
 def add_water():
@@ -307,7 +283,7 @@ def add_water():
         unit="litres",
         source="manual",
         recorded_at=now_ist(),
-        **_hm_kwargs(amount)
+        value1=amount
     )
     db.session.add(m)
     db.session.commit()
@@ -324,7 +300,7 @@ def get_water_today():
         HealthMetric.user_id == user.id,
         HealthMetric.metric_type == "water",
         func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(_hm_sum_expr(1))).scalar() or 0
+    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
 
     logs = HealthMetric.query.filter(
         HealthMetric.user_id == user.id,
@@ -342,7 +318,7 @@ def get_water_today():
             HealthMetric.user_id == user.id,
             HealthMetric.metric_type == "water",
             func.date(HealthMetric.recorded_at) == d
-        ).with_entities(func.sum(_hm_sum_expr(1))).scalar() or 0
+        ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
 
         week.append({
             "day": d.strftime("%a"),
@@ -359,10 +335,6 @@ def get_water_today():
         "week": week,
     })
 
-
-# ════════════════════════════════════════════════════════════
-# BLOOD SUGAR
-# ════════════════════════════════════════════════════════════
 
 @tracker_api_bp.route("/sugar", methods=["POST"])
 @jwt_required()
@@ -402,7 +374,8 @@ def add_sugar():
         notes=notes or None,
         source="manual",
         recorded_at=now_ist(),
-        **_hm_kwargs(f_val, p_val)
+        value1=f_val,
+        value2=p_val
     )
     db.session.add(m)
     db.session.commit()
@@ -442,10 +415,6 @@ def get_sugar():
         "status": status,
     })
 
-
-# ════════════════════════════════════════════════════════════
-# SLEEP
-# ════════════════════════════════════════════════════════════
 
 @tracker_api_bp.route("/sleep", methods=["POST"])
 @jwt_required()
@@ -530,10 +499,6 @@ def get_sleep():
     })
 
 
-# ════════════════════════════════════════════════════════════
-# STEPS
-# ════════════════════════════════════════════════════════════
-
 @tracker_api_bp.route("/steps", methods=["POST"])
 @jwt_required()
 def add_steps():
@@ -614,10 +579,6 @@ def get_steps():
     })
 
 
-# ════════════════════════════════════════════════════════════
-# HEART RATE
-# ════════════════════════════════════════════════════════════
-
 @tracker_api_bp.route("/heart-rate", methods=["POST"])
 @jwt_required()
 def add_heart_rate():
@@ -669,10 +630,6 @@ def get_heart_rate():
     })
 
 
-# ════════════════════════════════════════════════════════════
-# DELETE ANY METRIC
-# ════════════════════════════════════════════════════════════
-
 @tracker_api_bp.route("/<string:metric_type>/<int:metric_id>", methods=["DELETE"])
 @jwt_required()
 def delete_metric(metric_type, metric_id):
@@ -688,10 +645,6 @@ def delete_metric(metric_type, metric_id):
     db.session.commit()
     return ok(msg="Entry deleted")
 
-
-# ════════════════════════════════════════════════════════════
-# SUMMARY (All metrics for dashboard)
-# ════════════════════════════════════════════════════════════
 
 @tracker_api_bp.route("/summary/today", methods=["GET"])
 @jwt_required()
@@ -713,7 +666,7 @@ def today_summary():
         HealthMetric.user_id == user.id,
         HealthMetric.metric_type == "water",
         func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(_hm_sum_expr(1))).scalar() or 0
+    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
 
     steps_today = StepLog.query.filter_by(user_id=user.id, log_date=today).first()
     sleep_today = SleepLog.query.filter_by(user_id=user.id, log_date=today).first()
@@ -769,10 +722,6 @@ def today_summary():
         "sugar": latest_sugar.to_dict() if latest_sugar else None,
     })
 
-
-# ════════════════════════════════════════════════════════════
-# AI HEALTH CHAT
-# ════════════════════════════════════════════════════════════
 
 @tracker_api_bp.route("/ai/chat", methods=["POST"])
 @jwt_required()

@@ -2,7 +2,7 @@
 # HEALTH TRACKER PLATFORM — FINAL COMPLETE MERGED VERSION
 # app.py — Flask Application Factory (Website + API for APK)
 # ============================================================
-
+from dotenv import load_dotenv
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -16,9 +16,13 @@ from extensions import (
     cache, cors, jwt, csrf
 )
 
-print(os.environ.get("DATABASE_URL"))
-print(f"IST Time: {datetime.now(ZoneInfo('Asia/Kolkata'))}")
+load_dotenv()
 
+print("Current directory:", os.getcwd())
+print(".env exists:", os.path.exists(".env"))
+print("MAIL_USERNAME:", os.getenv("MAIL_USERNAME"))
+
+load_dotenv(r"C:\health_app_main\.env", override=True)
 
 # ------------------------------------------------------------
 # HELPER
@@ -82,7 +86,7 @@ def create_app(config_class=None):
     @login_manager.user_loader
     def load_user(user_id):
         from models import User
-        return User.query.get(int(user_id))
+        return db.session.get(User, int(user_id))
 
     # --------------------------------------------------------
     # JWT CONFIG

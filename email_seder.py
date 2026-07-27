@@ -198,7 +198,7 @@ def _gather_report_data(user, period_start, period_end):
             HealthMetric.user_id == user.id,
             HealthMetric.metric_type == "water",
             func.date(HealthMetric.recorded_at) == d
-        ).with_entities(func.sum(HealthMetric.value_1)).scalar() or 0
+        ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
 
         sleep = SleepLog.query.filter_by(user_id=user.id, log_date=d).first()
         steps = StepLog.query.filter_by(user_id=user.id, log_date=d).first()
@@ -214,13 +214,13 @@ def _gather_report_data(user, period_start, period_end):
         day_data.append({
             "date": d,
             "day_str": d.strftime("%d %b"),
-            "bp_sys": int(bp.value_1) if bp else None,
-            "bp_dia": int(bp.value_2) if bp else None,
-            "weight": round(wt.value_1, 1) if wt else None,
+            "bp_sys": int(bp.value1) if bp else None,
+            "bp_dia": int(bp.value2) if bp else None,
+            "weight": round(wt.value1, 1) if wt else None,
             "water": round(float(water), 1),
             "sleep": round(sleep.duration_hours, 1) if sleep and sleep.duration_hours else None,
             "steps": steps.steps if steps else None,
-            "sugar_f": int(sugar.value_1) if sugar and sugar.value_1 else None,
+            "sugar_f": int(sugar.value1) if sugar and sugar.value1 else None,
             "score": int(score.total_score) if score else None,
         })
 
