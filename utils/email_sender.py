@@ -142,11 +142,43 @@ def send_report_for_user(user, period_days=None, recipients=None):
                 recipients=recipients,
                 html=html_body
             )
+
+            print("=" * 60)
             print("MAIL_SERVER:", current_app.config.get("MAIL_SERVER"))
             print("MAIL_PORT:", current_app.config.get("MAIL_PORT"))
             print("MAIL_USERNAME:", current_app.config.get("MAIL_USERNAME"))
             print("MAIL_DEFAULT_SENDER:", current_app.config.get("MAIL_DEFAULT_SENDER"))
-            mail.send(msg)
+
+            try:
+                print("Testing SMTP connection...")
+
+                sock = socket.create_connection(
+                    (
+                        current_app.config["MAIL_SERVER"],
+                        current_app.config["MAIL_PORT"]
+                    ),
+                    timeout=10
+                )
+
+                print("SMTP connection successful")
+                sock.close()
+
+            except Exception as e:
+                print("SMTP CONNECTION FAILED")
+                print(type(e).__name__)
+                print(str(e))
+                raise
+
+            try:
+                print("Sending email...")
+                mail.send(msg)
+                print("Email sent successfully")
+
+            except Exception as e:
+                print("MAIL.SEND FAILED")
+                print(type(e).__name__)
+                print(str(e))
+                raise
 
         log = EmailReportLog(
             user_id=user.id,
