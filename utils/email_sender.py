@@ -7,6 +7,10 @@
 import logging
 from datetime import date, timedelta, datetime
 
+from flask import current_app
+
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,6 +142,10 @@ def send_report_for_user(user, period_days=None, recipients=None):
                 recipients=recipients,
                 html=html_body
             )
+            print("MAIL_SERVER:", current_app.config.get("MAIL_SERVER"))
+            print("MAIL_PORT:", current_app.config.get("MAIL_PORT"))
+            print("MAIL_USERNAME:", current_app.config.get("MAIL_USERNAME"))
+            print("MAIL_DEFAULT_SENDER:", current_app.config.get("MAIL_DEFAULT_SENDER"))
             mail.send(msg)
 
         log = EmailReportLog(
