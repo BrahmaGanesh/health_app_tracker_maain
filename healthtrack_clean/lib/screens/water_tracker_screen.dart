@@ -54,7 +54,7 @@ class _WaterTrackerScreenState extends State<WaterTrackerScreen> {
     setState(() {
       _todayTotal = total;
       _pct        = (_target > 0 ? (total / _target * 100).clamp(0, 100) : 0).toInt();
-      _logs       = local.where((r) => r['log_date'] == DateTime.now().toIso8601String().substring(0, 10)).map((r) => {'value_1': r['value1'], 'recorded_time': r['recorded_at']?.toString().substring(11, 16) ?? ''}).toList();
+      _logs       = local.where((r) => r['log_date'] == DateTime.now().toIso8601String().substring(0, 10)).map((r) => {'value1': r['value1'], 'recorded_time': r['recorded_at']?.toString().substring(11, 16) ?? ''}).toList();
       _loading    = false;
     });
   }
@@ -201,7 +201,7 @@ class _WaterTrackerScreenState extends State<WaterTrackerScreen> {
               else
                 ..._logs.map((l) => ListTile(contentPadding: EdgeInsets.zero, dense: true,
                   leading: const Text('💧', style: TextStyle(fontSize: 20)),
-                  title: Text('${l['value_1']}L', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.water)),
+                  title: Text('${l['value1']}L', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.water)),
                   trailing: Text(l['recorded_time'] ?? '', style: TextStyle(fontSize: 12, color: tm)),
                 )),
             ])),

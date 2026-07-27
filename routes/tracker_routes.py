@@ -60,7 +60,7 @@ def weight():
         m = HealthMetric(
             user_id     = user.id,
             metric_type = "weight",
-            value_1     = w,
+            value1     = w,
             unit        = "kg",
             notes       = notes or None,
             source      = "manual"
@@ -80,7 +80,7 @@ def weight():
     history = get_metric_history(user.id, "weight", days=90)
 
     chart_data = [
-        {"day": r.recorded_at.strftime("%d %b"), "weight": r.value_1}
+        {"day": r.recorded_at.strftime("%d %b"), "weight": r.value1}
         for r in history
     ]
 
@@ -88,7 +88,7 @@ def weight():
     goals          = user.goals
     target_weight  = goals.target_weight_kg if goals else None
     start_weight   = goals.start_weight_kg  if goals else None
-    current_weight = latest.value_1         if latest else None
+    current_weight = latest.value1         if latest else None
 
     lost_so_far = to_go = progress_pct = None
     if start_weight and current_weight and target_weight:
@@ -110,7 +110,7 @@ def weight():
 
     weight_7d_change = None
     if latest and week_ago:
-        weight_7d_change = round(latest.value_1 - week_ago.value_1, 1)
+        weight_7d_change = round(latest.value1 - week_ago.value1, 1)
 
     return render_template(
         "tracker/weight.html",
@@ -154,7 +154,7 @@ def water():
         m = HealthMetric(
             user_id     = user.id,
             metric_type = "water",
-            value_1     = amount,
+            value1     = amount,
             unit        = "litres",
             source      = "manual"
         )
@@ -168,7 +168,7 @@ def water():
         HealthMetric.user_id     == user.id,
         HealthMetric.metric_type == "water",
         func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value_1)).scalar() or 0
+    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
 
     today_total = round(today_total, 2)
     target      = user.goals.target_water_litres if user.goals else 2.5
@@ -186,7 +186,7 @@ def water():
             HealthMetric.user_id     == user.id,
             HealthMetric.metric_type == "water",
             func.date(HealthMetric.recorded_at) == d
-        ).with_entities(func.sum(HealthMetric.value_1)).scalar() or 0
+        ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
         week_data.append({"day": d.strftime("%a"), "litres": round(total, 2)})
 
     # ── Today's log entries ───────────────────────────────────
@@ -254,8 +254,8 @@ def sugar():
         m = HealthMetric(
             user_id     = user.id,
             metric_type = "sugar",
-            value_1     = fasting,
-            value_2     = post_meal,
+            value1     = fasting,
+            value2     = post_meal,
             unit        = "mg_dL",
             notes       = notes or None,
             source      = "manual"
@@ -287,16 +287,16 @@ def sugar():
     chart_data = [
         {
             "day":      r.recorded_at.strftime("%d %b"),
-            "fasting":  r.value_1,
-            "postmeal": r.value_2
+            "fasting":  r.value1,
+            "postmeal": r.value2
         }
         for r in history
     ]
 
     # Status
     latest_status = "No Reading"
-    if latest and latest.value_1:
-        f = latest.value_1
+    if latest and latest.value1:
+        f = latest.value1
         if f < 100:       latest_status = "Normal"
         elif f < 126:     latest_status = "Pre-Diabetes"
         else:             latest_status = "Diabetes Range"
@@ -345,9 +345,9 @@ def delete_metric(metric_id):
 def quick_log():
     """Quick log any metric via AJAX from the dashboard."""
     metric_type = request.json.get("type")
-    value_1     = request.json.get("value_1")
-    value_2     = request.json.get("value_2")
-    value_3     = request.json.get("value_3")
+    value1     = request.json.get("value1")
+    value2     = request.json.get("value2")
+    value3     = request.json.get("value3")
 
     allowed = ["weight", "water", "steps", "mood"]
     if metric_type not in allowed:
@@ -357,9 +357,9 @@ def quick_log():
         m = HealthMetric(
             user_id     = current_user.id,
             metric_type = metric_type,
-            value_1     = float(value_1) if value_1 else None,
-            value_2     = float(value_2) if value_2 else None,
-            value_3     = float(value_3) if value_3 else None,
+            value1     = float(value1) if value1 else None,
+            value2     = float(value2) if value2 else None,
+            value3     = float(value3) if value3 else None,
             source      = "manual"
         )
         db.session.add(m)

@@ -2,6 +2,9 @@
 # routes/api/tracker_api.py — All Health Trackers API (APK)
 # BP, Weight, Water, Sugar, Sleep, Steps, Heart Rate
 # EXACT timestamps saved on every entry
+# IMPORTANT:
+# Replace METRIC_V1 / METRIC_V2 / METRIC_V3 with actual
+# HealthMetric model column names from models.py
 # ============================================================
 
 from flask import Blueprint, request, jsonify
@@ -11,11 +14,22 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func
 
 from extensions import db
-from models import HealthMetric, SleepLog, StepLog, HeartRateLog, Alert
+from models import HealthMetric, SleepLog, StepLog, HeartRateLog
 
 tracker_api_bp = Blueprint("tracker_api", __name__)
 
 IST = ZoneInfo("Asia/Kolkata")
+
+# ============================================================
+# CHANGE THESE 3 CONSTANTS TO MATCH models.py EXACTLY
+# Example only:
+# METRIC_V1 = "value"
+# METRIC_V2 = "value_secondary"
+# METRIC_V3 = "value_tertiary"
+# ============================================================
+METRIC_V1 = "REPLACE_WITH_REAL_FIELD_1"
+METRIC_V2 = "REPLACE_WITH_REAL_FIELD_2"
+METRIC_V3 = "REPLACE_WITH_REAL_FIELD_3"
 
 
 def now_ist():
@@ -37,9 +51,31 @@ def err(msg="Error", code=400):
     return jsonify({"success": False, "message": msg}), code
 
 
+def _hm_kwargs(v1=None, v2=None, v3=None):
+    data = {}
+    if v1 is not None:
+        data[METRIC_V1] = v1
+    if v2 is not None:
+        data[METRIC_V2] = v2
+    if v3 is not None:
+        data[METRIC_V3] = v3
+    return data
+
+
+def _hm_get(metric, which=1, default=None):
+    field = {1: METRIC_V1, 2: METRIC_V2, 3: METRIC_V3}.get(which)
+    if not field:
+        return default
+    return getattr(metric, field, default)
+
+
+def _hm_sum_expr(which=1):
+    field = {1: METRIC_V1, 2: METRIC_V2, 3: METRIC_V3}.get(which)
+    return getattr(HealthMetric, field)
+
+
 # ── HELPER: fire push alert for bad readings ──────────────────
 def _check_and_push(user, metric_type, value1, value2=None):
-    """Auto-create alert and push notification for threshold violations."""
     from utils.reminder_engine import create_alert_notification
 
     if metric_type == "bp" and value1 is not None and value2 is not None:
@@ -104,19 +140,16 @@ def add_bp():
     m = HealthMetric(
         user_id=user.id,
         metric_type="bp",
-        value1=sys_val,
-        value2=dia_val,
-        value3=pulse_val,
         unit="mmHg",
         notes=notes or None,
         source="manual",
-        recorded_at=now_ist()
+        recorded_at=now_ist(),
+        **_hm_kwargs(sys_val, dia_val, pulse_val)
     )
     db.session.add(m)
     db.session.commit()
 
     _check_and_push(user, "bp", sys_val, dia_val)
-
     return ok(m.to_dict(), "BP reading saved", 201)
 
 
@@ -124,7 +157,7 @@ def add_bp():
 @jwt_required()
 def get_bp():
     user = get_current_user()
-    days = int(request.args.get("days", 7))
+    days = request.args.get("days", 7, type=int) or 7
     since = now_ist() - timedelta(days=days)
 
     readings = HealthMetric.query.filter(
@@ -137,8 +170,8 @@ def get_bp():
 
     avg_sys = avg_dia = None
     if readings:
-        sys_vals = [r.value1 for r in readings if r.value1 is not None]
-        dia_vals = [r.value2 for r in readings if r.value2 is not None]
+        sys_vals = [_hm_get(r, 1) for r in readings if _hm_get(r, 1) is not None]
+        dia_vals = [_hm_get(r, 2) for r in readings if _hm_get(r, 2) is not None]
         if sys_vals:
             avg_sys = round(sum(sys_vals) / len(sys_vals), 0)
         if dia_vals:
@@ -190,11 +223,11 @@ def add_weight():
     m = HealthMetric(
         user_id=user.id,
         metric_type="weight",
-        value1=w,
         unit="kg",
         notes=data.get("notes", "") or None,
         source="manual",
-        recorded_at=now_ist()
+        recorded_at=now_ist(),
+        **_hm_kwargs(w)
     )
     db.session.add(m)
 
@@ -209,7 +242,7 @@ def add_weight():
 @jwt_required()
 def get_weight():
     user = get_current_user()
-    days = int(request.args.get("days", 30))
+    days = request.args.get("days", 30, type=int) or 30
     since = now_ist() - timedelta(days=days)
 
     readings = HealthMetric.query.filter(
@@ -225,15 +258,20 @@ def get_weight():
 
     change = None
     if len(readings) >= 2:
-        change = round(readings[-1].value1 - readings[0].value1, 1)
+        start_w = _hm_get(readings[0], 1)
+        end_w = _hm_get(readings[-1], 1)
+        if start_w is not None and end_w is not None:
+            change = round(end_w - start_w, 1)
 
     goals = user.goals
     progress_pct = 0
     if goals and goals.target_weight_kg and goals.start_weight_kg and latest:
-        diff = goals.start_weight_kg - goals.target_weight_kg
-        done = goals.start_weight_kg - latest.value1
-        if diff != 0:
-            progress_pct = max(0, min(100, int(done / diff * 100)))
+        latest_w = _hm_get(latest, 1)
+        if latest_w is not None:
+            diff = goals.start_weight_kg - goals.target_weight_kg
+            done = goals.start_weight_kg - latest_w
+            if diff != 0:
+                progress_pct = max(0, min(100, int(done / diff * 100)))
 
     return ok({
         "readings": [r.to_dict() for r in readings],
@@ -266,10 +304,10 @@ def add_water():
     m = HealthMetric(
         user_id=user.id,
         metric_type="water",
-        value1=amount,
         unit="litres",
         source="manual",
-        recorded_at=now_ist()
+        recorded_at=now_ist(),
+        **_hm_kwargs(amount)
     )
     db.session.add(m)
     db.session.commit()
@@ -286,7 +324,7 @@ def get_water_today():
         HealthMetric.user_id == user.id,
         HealthMetric.metric_type == "water",
         func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
+    ).with_entities(func.sum(_hm_sum_expr(1))).scalar() or 0
 
     logs = HealthMetric.query.filter(
         HealthMetric.user_id == user.id,
@@ -304,7 +342,7 @@ def get_water_today():
             HealthMetric.user_id == user.id,
             HealthMetric.metric_type == "water",
             func.date(HealthMetric.recorded_at) == d
-        ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
+        ).with_entities(func.sum(_hm_sum_expr(1))).scalar() or 0
 
         week.append({
             "day": d.strftime("%a"),
@@ -360,18 +398,16 @@ def add_sugar():
     m = HealthMetric(
         user_id=user.id,
         metric_type="sugar",
-        value1=f_val,
-        value2=p_val,
         unit="mg/dL",
         notes=notes or None,
         source="manual",
-        recorded_at=now_ist()
+        recorded_at=now_ist(),
+        **_hm_kwargs(f_val, p_val)
     )
     db.session.add(m)
     db.session.commit()
 
     _check_and_push(user, "sugar", f_val)
-
     return ok(m.to_dict(), "Sugar reading saved", 201)
 
 
@@ -379,7 +415,7 @@ def add_sugar():
 @jwt_required()
 def get_sugar():
     user = get_current_user()
-    days = int(request.args.get("days", 30))
+    days = request.args.get("days", 30, type=int) or 30
     since = now_ist() - timedelta(days=days)
 
     readings = HealthMetric.query.filter(
@@ -391,8 +427,8 @@ def get_sugar():
     latest = readings[0] if readings else None
     status = "No Reading"
 
-    if latest and latest.value1 is not None:
-        f = latest.value1
+    if latest and _hm_get(latest, 1) is not None:
+        f = _hm_get(latest, 1)
         if f < 100:
             status = "Normal"
         elif f < 126:
@@ -466,7 +502,7 @@ def add_sleep():
 @jwt_required()
 def get_sleep():
     user = get_current_user()
-    days = int(request.args.get("days", 14))
+    days = request.args.get("days", 14, type=int) or 14
     since = today_ist() - timedelta(days=days)
 
     logs = SleepLog.query.filter(
@@ -476,8 +512,8 @@ def get_sleep():
 
     avg_hrs = avg_quality = None
     if logs:
-        hrs = [l.duration_hours for l in logs if l.duration_hours]
-        quals = [l.quality for l in logs if l.quality]
+        hrs = [l.duration_hours for l in logs if l.duration_hours is not None]
+        quals = [l.quality for l in logs if l.quality is not None]
         if hrs:
             avg_hrs = round(sum(hrs) / len(hrs), 1)
         if quals:
@@ -545,7 +581,7 @@ def add_steps():
 @jwt_required()
 def get_steps():
     user = get_current_user()
-    days = int(request.args.get("days", 7))
+    days = request.args.get("days", 7, type=int) or 7
     since = today_ist() - timedelta(days=days)
 
     logs = StepLog.query.filter(
@@ -615,7 +651,7 @@ def add_heart_rate():
 @jwt_required()
 def get_heart_rate():
     user = get_current_user()
-    days = int(request.args.get("days", 7))
+    days = request.args.get("days", 7, type=int) or 7
     since = today_ist() - timedelta(days=days)
 
     logs = HeartRateLog.query.filter(
@@ -677,7 +713,7 @@ def today_summary():
         HealthMetric.user_id == user.id,
         HealthMetric.metric_type == "water",
         func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
+    ).with_entities(func.sum(_hm_sum_expr(1))).scalar() or 0
 
     steps_today = StepLog.query.filter_by(user_id=user.id, log_date=today).first()
     sleep_today = SleepLog.query.filter_by(user_id=user.id, log_date=today).first()
@@ -691,11 +727,26 @@ def today_summary():
     water_target = goals.target_water_litres if goals else 2.5
     steps_target = goals.target_steps if goals else 8000
 
+    bp_status = "No Reading"
+    if latest_bp:
+        s = _hm_get(latest_bp, 1, 0) or 0
+        d = _hm_get(latest_bp, 2, 0) or 0
+        if s < 120 and d < 80:
+            bp_status = "Normal"
+        elif s < 130 and d < 80:
+            bp_status = "Elevated"
+        elif s < 140 or d < 90:
+            bp_status = "High Stage 1"
+        elif s < 180 or d < 120:
+            bp_status = "High Stage 2"
+        else:
+            bp_status = "Crisis"
+
     return ok({
         "date": str(today),
         "bp": {
             "latest": latest_bp.to_dict() if latest_bp else None,
-            "status": latest_bp.bp_status if latest_bp else "No Reading",
+            "status": bp_status,
         },
         "weight": {
             "latest": latest_weight.to_dict() if latest_weight else None,

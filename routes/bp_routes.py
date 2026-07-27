@@ -89,7 +89,7 @@ def tracker():
 
     latest_status = "No Reading"
     if latest:
-        latest_status, _ = get_bp_status(latest.value_1, latest.value_2)
+        latest_status, _ = get_bp_status(latest.value1, latest.value2)
 
     # ── Morning BP (first reading today) ─────────────────────
     morning_bp = HealthMetric.query.filter(
@@ -99,7 +99,7 @@ def tracker():
     ).order_by(HealthMetric.recorded_at.asc()).first()
 
     morning_bp_str = (
-        f"{int(morning_bp.value_1)}/{int(morning_bp.value_2)}"
+        f"{int(morning_bp.value1)}/{int(morning_bp.value2)}"
         if morning_bp else "—"
     )
 
@@ -112,7 +112,7 @@ def tracker():
     ).order_by(HealthMetric.recorded_at.desc()).first()
 
     evening_bp_str = (
-        f"{int(evening_bp.value_1)}/{int(evening_bp.value_2)}"
+        f"{int(evening_bp.value1)}/{int(evening_bp.value2)}"
         if evening_bp else "—"
     )
 
@@ -127,9 +127,9 @@ def tracker():
         ).all()
 
         if day_rdgs:
-            avg_sys   = round(sum(r.value_1 for r in day_rdgs if r.value_1) / len(day_rdgs), 0)
-            avg_dia   = round(sum(r.value_2 for r in day_rdgs if r.value_2) / len(day_rdgs), 0)
-            avg_pulse = round(sum(r.value_3 for r in day_rdgs if r.value_3) / len(day_rdgs), 0) if any(r.value_3 for r in day_rdgs) else None
+            avg_sys   = round(sum(r.value1 for r in day_rdgs if r.value1) / len(day_rdgs), 0)
+            avg_dia   = round(sum(r.value2 for r in day_rdgs if r.value2) / len(day_rdgs), 0)
+            avg_pulse = round(sum(r.value3 for r in day_rdgs if r.value3) / len(day_rdgs), 0) if any(r.value3 for r in day_rdgs) else None
         else:
             avg_sys = avg_dia = avg_pulse = None
 
@@ -172,10 +172,10 @@ def tracker():
     days_normal = days_high = 0
 
     if recent_30:
-        avg_sys_30 = round(sum(r.value_1 for r in recent_30 if r.value_1) / len(recent_30), 0)
-        avg_dia_30 = round(sum(r.value_2 for r in recent_30 if r.value_2) / len(recent_30), 0)
+        avg_sys_30 = round(sum(r.value1 for r in recent_30 if r.value1) / len(recent_30), 0)
+        avg_dia_30 = round(sum(r.value2 for r in recent_30 if r.value2) / len(recent_30), 0)
         for r in recent_30:
-            _, cat = get_bp_status(r.value_1, r.value_2)
+            _, cat = get_bp_status(r.value1, r.value2)
             if cat == "normal":   days_normal += 1
             elif cat in ("high", "critical"): days_high += 1
 
@@ -247,15 +247,16 @@ def add_bp():
     metric = HealthMetric(
         user_id     = current_user.id,
         metric_type = "bp",
-        value_1     = sys_val,
-        value_2     = dia_val,
-        value_3     = pulse_val,
+        value1     = sys_val,
+        value2     = dia_val,
+        value3     = pulse_val,
         unit        = "mmHg",
         notes       = notes or None,
         source      = "manual"
     )
     db.session.add(metric)
     db.session.commit()
+
 
     # Check for alerts
     check_and_create_alerts(current_user.id, sys_val, dia_val)
@@ -307,9 +308,9 @@ def chart_data():
         if rdgs:
             data.append({
                 "day":   d.strftime("%d %b"),
-                "sys":   round(sum(r.value_1 for r in rdgs if r.value_1) / len(rdgs), 0),
-                "dia":   round(sum(r.value_2 for r in rdgs if r.value_2) / len(rdgs), 0),
-                "pulse": round(sum(r.value_3 for r in rdgs if r.value_3) / max(1, sum(1 for r in rdgs if r.value_3)), 0) if any(r.value_3 for r in rdgs) else None,
+                "sys":   round(sum(r.valu1 for r in rdgs if r.value1) / len(rdgs), 0),
+                "dia":   round(sum(r.value2 for r in rdgs if r.value2) / len(rdgs), 0),
+                "pulse": round(sum(r.value3 for r in rdgs if r.value3) / max(1, sum(1 for r in rdgs if r.value3)), 0) if any(r.value3 for r in rdgs) else None,
             })
         else:
             data.append({"day": d.strftime("%d %b"), "sys": None, "dia": None, "pulse": None})
@@ -338,13 +339,13 @@ def export_bp():
     writer.writerow(["Date", "Time", "Systolic", "Diastolic", "Pulse", "Status", "Notes"])
 
     for r in readings:
-        status, _ = get_bp_status(r.value_1, r.value_2)
+        status, _ = get_bp_status(r.value1, r.value2)
         writer.writerow([
             r.recorded_at.strftime("%d %b %Y"),
             r.recorded_at.strftime("%I:%M %p"),
-            int(r.value_1) if r.value_1 else "",
-            int(r.value_2) if r.value_2 else "",
-            int(r.value_3) if r.value_3 else "",
+            int(r.value1) if r.value1 else "",
+            int(r.value2) if r.value2 else "",
+            int(r.value3) if r.value3 else "",
             status,
             r.notes or ""
         ])

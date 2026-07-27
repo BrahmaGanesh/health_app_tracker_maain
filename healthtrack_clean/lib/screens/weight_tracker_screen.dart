@@ -91,7 +91,7 @@ class _WeightTrackerScreenState extends State<WeightTrackerScreen> {
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('CURRENT WEIGHT', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.white70)),
                   const SizedBox(height: 6),
-                  Text(latest != null ? '${latest['value_1']} kg' : '—',
+                  Text(latest != null ? '${latest['value1']} kg' : '—',
                       style: const TextStyle(fontFamily: 'monospace', fontSize: 42, fontWeight: FontWeight.w700, color: Colors.white, height: 1)),
                   Text(latest?['recorded_date'] ?? 'No data', style: const TextStyle(fontSize: 12, color: Colors.white60)),
                   const SizedBox(height: 8),
@@ -161,7 +161,7 @@ class _WeightTrackerScreenState extends State<WeightTrackerScreen> {
               else
                 ..._readings.take(15).map((r) => ListTile(contentPadding: EdgeInsets.zero, dense: true,
                   leading: const Text('⚖️', style: TextStyle(fontSize: 20)),
-                  title: Text('${r['value_1']} kg', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.violet)),
+                  title: Text('${r['value1']} kg', style: TextStyle(fontFamily: 'monospace', fontWeight: FontWeight.w600, fontSize: 14, color: AppColors.violet)),
                   trailing: Text(r['recorded_date'] ?? '', style: TextStyle(fontSize: 12, color: tm)),
                 )),
             ])),
@@ -175,7 +175,7 @@ class _WeightTrackerScreenState extends State<WeightTrackerScreen> {
   Widget _buildChart(bool isDark) {
     final rev = _readings.reversed.toList().take(30).toList();
     final spots = <FlSpot>[];
-    for (int i = 0; i < rev.length; i++) spots.add(FlSpot(i.toDouble(), (rev[i]['value_1'] ?? 0).toDouble()));
+    for (int i = 0; i < rev.length; i++) spots.add(FlSpot(i.toDouble(), (rev[i]['value1'] ?? 0).toDouble()));
     return LineChart(LineChartData(
       gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (_) => FlLine(color: isDark ? Colors.white10 : Colors.grey.shade100, strokeWidth: 1)),
       titlesData: const FlTitlesData(topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)), rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)), bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)), leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 36))),

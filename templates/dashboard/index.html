@@ -494,14 +494,14 @@
     {% if latest_bp %}
     <div class="hero-stat-box">
       <span class="hero-stat-val">
-  {{ latest_bp.value_1|int }}/{{ latest_bp.value_2|int }}
+  {{ latest_bp.value1|int }}/{{ latest_bp.value2|int }}
 </span>
       <span class="hero-stat-lbl">Latest BP</span>
     </div>
     {% endif %}
     {% if latest_weight %}
     <div class="hero-stat-box">
-      <span class="hero-stat-val">{{ latest_weight.value_1 }}kg</span>
+      <span class="hero-stat-val">{{ latest_weight.value1 }}kg</span>
       <span class="hero-stat-lbl">Weight</span>
     </div>
     {% endif %}
@@ -544,8 +544,8 @@
   <div class="stat-card bp">
     <div class="sc-label">❤️ Blood Pressure</div>
     {% if latest_bp %}
-      <div class="sc-value red">{{ latest_bp.value_1|int }}/{{ latest_bp.value_2|int }}</div>
-      <div class="sc-sub">Pulse: {{ latest_bp.value_3|int if latest_bp.value_3 else '—' }} bpm · {{ latest_bp.recorded_at.strftime('%d %b') }}</div>
+      <div class="sc-value red">{{ latest_bp.value1|int }}/{{ latest_bp.value2|int }}</div>
+      <div class="sc-sub">Pulse: {{ latest_bp.value3|int if latest_bp.value3 else '—' }} bpm · {{ latest_bp.recorded_at.strftime('%d %b') }}</div>
       <span class="sc-badge {% if latest_bp_status == 'Normal' %}badge-success{% elif latest_bp_status == 'Elevated' %}badge-warning{% else %}badge-danger{% endif %}">
         {{ latest_bp_status }}
       </span>
@@ -570,7 +570,7 @@
   <div class="stat-card weight">
     <div class="sc-label">⚖️ Weight</div>
     {% if latest_weight %}
-      <div class="sc-value purple">{{ latest_weight.value_1 }}kg</div>
+      <div class="sc-value purple">{{ latest_weight.value1 }}kg</div>
       <div class="sc-sub">
         {% if weight_to_go and weight_to_go > 0 %}{{ weight_to_go }}kg to target{% else %}Target reached!{% endif %}
       </div>

@@ -112,8 +112,8 @@ class _SugarTrackerScreenState extends State<SugarTrackerScreen> {
                   if (_latest != null) ...[
                     const SizedBox(height: 4),
                     Text(
-                      '${_latest!['value_1'] != null ? 'Fasting: ${_latest!['value_1']?.toInt()} mg/dL' : ''}'
-                      '${_latest!['value_2'] != null ? '  Post-meal: ${_latest!['value_2']?.toInt()} mg/dL' : ''}',
+                      '${_latest!['value1'] != null ? 'Fasting: ${_latest!['value1']?.toInt()} mg/dL' : ''}'
+                      '${_latest!['value2'] != null ? '  Post-meal: ${_latest!['value2']?.toInt()} mg/dL' : ''}',
                       style: const TextStyle(fontSize: 13, color: Colors.white70),
                     ),
                     Text(_latest!['recorded_time'] ?? '', style: const TextStyle(fontSize: 12, color: Colors.white60)),
@@ -266,8 +266,8 @@ class _TrendChart extends StatelessWidget {
     final spotsP = <FlSpot>[];
     final r = readings.reversed.toList().take(14).toList().reversed.toList();
     for (int i = 0; i < r.length; i++) {
-      if (r[i]['value_1'] != null) spots.add(FlSpot(i.toDouble(), (r[i]['value_1'] as num).toDouble()));
-      if (r[i]['value_2'] != null) spotsP.add(FlSpot(i.toDouble(), (r[i]['value_2'] as num).toDouble()));
+      if (r[i]['value1'] != null) spots.add(FlSpot(i.toDouble(), (r[i]['value1'] as num).toDouble()));
+      if (r[i]['value2'] != null) spotsP.add(FlSpot(i.toDouble(), (r[i]['value2'] as num).toDouble()));
     }
     return Container(
       decoration: BoxDecoration(
@@ -331,7 +331,7 @@ class _HistoryList extends StatelessWidget {
   const _HistoryList({required this.readings, required this.isDark});
 
   Color _rowColor(dynamic r) {
-    final v = (r['value_1'] ?? 0) as num;
+    final v = (r['value1'] ?? 0) as num;
     if (v < 100) return AppColors.success;
     if (v < 126) return AppColors.warning;
     return AppColors.danger;
@@ -366,9 +366,9 @@ class _HistoryList extends StatelessWidget {
                 Container(width: 4, height: 36, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(2))),
                 const SizedBox(width: 12),
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  if (r['value_1'] != null) Text('Fasting: ${(r['value_1'] as num).toInt()} mg/dL',
+                  if (r['value1'] != null) Text('Fasting: ${(r['value1'] as num).toInt()} mg/dL',
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: isDark ? AppColors.textOnDark : AppColors.textPrimary)),
-                  if (r['value_2'] != null) Text('Post-meal: ${(r['value_2'] as num).toInt()} mg/dL',
+                  if (r['value2'] != null) Text('Post-meal: ${(r['value2'] as num).toInt()} mg/dL',
                       style: TextStyle(fontSize: 12, color: isDark ? AppColors.textMutedDark : AppColors.textMuted)),
                 ])),
                 Column(crossAxisAlignment: CrossAxisAlignment.end, children: [

@@ -31,9 +31,9 @@ def index():
     bp_chart = [
         {
             "day":   r.recorded_at.strftime("%d %b"),
-            "sys":   r.value_1,
-            "dia":   r.value_2,
-            "pulse": r.value_3
+            "sys":   r.value1,
+            "dia":   r.value2,
+            "pulse": r.value3
         }
         for r in bp_30
     ]
@@ -41,11 +41,11 @@ def index():
     avg_sys = avg_dia = None
     days_normal = days_high = 0
     if bp_30:
-        avg_sys = round(sum(r.value_1 for r in bp_30 if r.value_1) / len(bp_30), 0)
-        avg_dia = round(sum(r.value_2 for r in bp_30 if r.value_2) / len(bp_30), 0)
+        avg_sys = round(sum(r.value1 for r in bp_30 if r.value1) / len(bp_30), 0)
+        avg_dia = round(sum(r.value2 for r in bp_30 if r.value2) / len(bp_30), 0)
         for r in bp_30:
-            s = r.value_1 or 0
-            d = r.value_2 or 0
+            s = r.value1 or 0
+            d = r.value2 or 0
             if s < 130 and d < 80: days_normal += 1
             elif s >= 140 or d >= 90: days_high += 1
 
@@ -60,12 +60,12 @@ def index():
     ).order_by(HealthMetric.recorded_at.asc()).all()
 
     weight_chart = [
-        {"day": r.recorded_at.strftime("%d %b"), "weight": r.value_1}
+        {"day": r.recorded_at.strftime("%d %b"), "weight": r.value1}
         for r in wt_60
     ]
 
-    latest_weight = wt_60[-1].value_1 if wt_60 else None
-    start_weight  = wt_60[0].value_1  if wt_60 else None
+    latest_weight = wt_60[-1].value1 if wt_60 else None
+    start_weight  = wt_60[0].value1  if wt_60 else None
     wt_change_60  = round(latest_weight - start_weight, 1) if (latest_weight and start_weight) else None
 
     # ── Nutrition 14-day ──────────────────────────────────────
@@ -95,7 +95,7 @@ def index():
             HealthMetric.user_id     == user.id,
             HealthMetric.metric_type == "water",
             func.date(HealthMetric.recorded_at) == d
-        ).with_entities(func.sum(HealthMetric.value_1)).scalar() or 0
+        ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
         water_7.append({"day": d.strftime("%a"), "litres": round(total, 2)})
 
     # ── Meal adherence (last 7 days) ──────────────────────────
@@ -177,7 +177,7 @@ def bp_data():
     ).order_by(HealthMetric.recorded_at.asc()).all()
 
     return jsonify([
-        {"day": r.recorded_at.strftime("%d %b"), "sys": r.value_1, "dia": r.value_2, "pulse": r.value_3}
+        {"day": r.recorded_at.strftime("%d %b"), "sys": r.value1, "dia": r.value2, "pulse": r.value3}
         for r in records
     ])
 
@@ -192,7 +192,7 @@ def weight_data():
         HealthMetric.metric_type == "weight",
         HealthMetric.recorded_at >= since
     ).order_by(HealthMetric.recorded_at.asc()).all()
-    return jsonify([{"day": r.recorded_at.strftime("%d %b"), "weight": r.value_1} for r in records])
+    return jsonify([{"day": r.recorded_at.strftime("%d %b"), "weight": r.value1} for r in records])
 
 
 # ============================================================
@@ -225,8 +225,8 @@ def _generate_insights(user, bp_records, weight_records, nutrition_logs):
         recent  = bp_records[-3:] if len(bp_records) >= 3 else bp_records
         earlier = bp_records[:3]  if len(bp_records) >= 6 else []
 
-        avg_recent  = sum(r.value_1 for r in recent)  / len(recent)
-        avg_earlier = sum(r.value_1 for r in earlier) / len(earlier) if earlier else avg_recent
+        avg_recent  = sum(r.value1 for r in recent)  / len(recent)
+        avg_earlier = sum(r.value1 for r in earlier) / len(earlier) if earlier else avg_recent
 
         change = round(avg_earlier - avg_recent, 0)
 
@@ -238,7 +238,7 @@ def _generate_insights(user, bp_records, weight_records, nutrition_logs):
             icon = "📈"; direction = "worsening"
         else:
             avg_s = round(avg_recent, 0)
-            avg_d = round(sum(r.value_2 for r in recent) / len(recent), 0)
+            avg_d = round(sum(r.value2 for r in recent) / len(recent), 0)
             text = f"BP is stable at around {int(avg_s)}/{int(avg_d)} mmHg. Continue current routine."
             icon = "📊"; direction = "stable"
 
@@ -246,8 +246,8 @@ def _generate_insights(user, bp_records, weight_records, nutrition_logs):
 
     # ── Weight insight ────────────────────────────────────────
     if weight_records and len(weight_records) >= 2:
-        start  = weight_records[0].value_1
-        latest = weight_records[-1].value_1
+        start  = weight_records[0].value1
+        latest = weight_records[-1].value1
         change = round(start - latest, 1)
 
         if change > 0:

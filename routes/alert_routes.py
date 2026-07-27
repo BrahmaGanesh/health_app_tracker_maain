@@ -147,7 +147,7 @@ def _run_alert_engine(user):
         ).order_by(HealthMetric.recorded_at.desc()).first()
 
         if latest_bp:
-            s, d = latest_bp.value_1 or 0, latest_bp.value_2 or 0
+            s, d = latest_bp.value1 or 0, latest_bp.value_2 or 0
 
             # Crisis
             if s >= 180 or d >= 120:
@@ -182,7 +182,7 @@ def _run_alert_engine(user):
     # ── Medicine Alerts ───────────────────────────────────────
     if user.medicines:
         for med in user.medicines:
-            if not med.active:
+            if not med.is_active:
                 continue
             from models import MedicineLog
             taken_today = MedicineLog.query.filter_by(
@@ -200,7 +200,7 @@ def _run_alert_engine(user):
         HealthMetric.user_id    == user.id,
         HealthMetric.metric_type == "water",
         sqlfunc.date(HealthMetric.recorded_at) == today
-    ).with_entities(sqlfunc.sum(HealthMetric.value_1)).scalar() or 0
+    ).with_entities(sqlfunc.sum(HealthMetric.value1)).scalar() or 0
 
     target_water = user.goals.target_water_litres if user.goals else 2.5
     import time
@@ -242,8 +242,8 @@ def _run_alert_engine(user):
         ).all()
 
         if len(wt_last_14) >= 2:
-            first_w = wt_last_14[0].value_1
-            last_w  = wt_last_14[-1].value_1
+            first_w = wt_last_14[0].value1
+            last_w  = wt_last_14[-1].value1
             if abs(first_w - last_w) < 0.3:
                 _create_alert_if_new(user.id, "recommendation", "weight",
                     "⚖️ Weight Plateau Detected",

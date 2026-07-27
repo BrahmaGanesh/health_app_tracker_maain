@@ -225,7 +225,7 @@ class _MemberCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bpLatest  = member['latest_bp'];
-    final bpStr     = bpLatest != null ? '${(bpLatest['value_1'] ?? 0).toInt()}/${(bpLatest['value_2'] ?? 0).toInt()}' : '—';
+    final bpStr     = bpLatest != null ? '${(bpLatest['value1'] ?? 0).toInt()}/${(bpLatest['value2'] ?? 0).toInt()}' : '—';
     final nextAppt  = member['next_appointment'];
 
     return Dismissible(
@@ -277,7 +277,7 @@ class _MemberCard extends StatelessWidget {
             Row(children: [
               _StatPill('❤️', 'BP', bpStr),
               const SizedBox(width: 8),
-              _StatPill('⚖️', 'Weight', member['latest_weight'] != null ? '${(member['latest_weight']['value_1'] ?? 0).toStringAsFixed(1)}kg' : '—'),
+              _StatPill('⚖️', 'Weight', member['latest_weight'] != null ? '${(member['latest_weight']['value1'] ?? 0).toStringAsFixed(1)}kg' : '—'),
               const SizedBox(width: 8),
               _StatPill('💊', 'Meds', '${member['medicine_count'] ?? 0}'),
               const SizedBox(width: 8),
@@ -820,7 +820,7 @@ class _OverviewTabState extends State<_OverviewTab> {
                 '❤️',
                 'Blood Pressure',
                 bpL != null
-                    ? '${(bpL['value_1'] ?? 0).toInt()}/${(bpL['value_2'] ?? 0).toInt()}'
+                    ? '${(bpL['value1'] ?? 0).toInt()}/${(bpL['value2'] ?? 0).toInt()}'
                     : '—',
                 'mmHg',
                 AppColors.danger,
@@ -830,7 +830,7 @@ class _OverviewTabState extends State<_OverviewTab> {
               _VitalCard(
                 '🩺',
                 'Blood Sugar',
-                sugL != null ? '${(sugL['value_1'] ?? 0).toInt()}' : '—',
+                sugL != null ? '${(sugL['value1'] ?? 0).toInt()}' : '—',
                 'mg/dL',
                 AppColors.sugar,
                 isDark,
@@ -839,7 +839,7 @@ class _OverviewTabState extends State<_OverviewTab> {
               _VitalCard(
                 '⚖️',
                 'Weight',
-                wtL != null ? '${(wtL['value_1'] ?? 0).toStringAsFixed(1)}' : '—',
+                wtL != null ? '${(wtL['value1'] ?? 0).toStringAsFixed(1)}' : '—',
                 'kg',
                 AppColors.violet,
                 isDark,
@@ -1083,8 +1083,8 @@ class _MetricTabState extends State<_MetricTab> {
     setState(() => _saving = true);
     final r = await _api.post('/family/members/${widget.memberId}/metrics', data: {
       'metric_type': _currentType,
-      'value_1': v1,
-      'value_2': v2,
+      'value1': v1,
+      'value2': v2,
     });
     setState(() => _saving = false);
     if (r.success) {
@@ -1239,7 +1239,7 @@ class _MetricTabState extends State<_MetricTab> {
                   children: [
                     Expanded(
                       child: Text(
-                        '${(r['value_1'] ?? 0).toStringAsFixed(1)}${r['value_2'] != null ? '/${(r['value_2'] ?? 0).toStringAsFixed(1)}' : ''} ${_currentType == 'bp' ? 'mmHg' : _currentType == 'weight' ? 'kg' : 'mg/dL'}',
+                        '${(r['value1'] ?? 0).toStringAsFixed(1)}${r['value2'] != null ? '/${(r['value2'] ?? 0).toStringAsFixed(1)}' : ''} ${_currentType == 'bp' ? 'mmHg' : _currentType == 'weight' ? 'kg' : 'mg/dL'}',
                         style: TextStyle(fontFamily: 'monospace', fontSize: 15, fontWeight: FontWeight.w700, color: tp),
                       ),
                     ),

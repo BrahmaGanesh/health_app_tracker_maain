@@ -42,7 +42,7 @@ class _BPTrackerScreenState extends State<BPTrackerScreen> {
     }
     setState(() {
       _readings = local.map((r) => {
-        'id': r['id'], 'value_1': r['value1'], 'value_2': r['value2'],
+        'id': r['id'], 'value1': r['value1'], 'value2': r['value2'],
         'recorded_date': r['log_date'], 'recorded_time': r['recorded_at']?.toString().substring(11,16) ?? '',
         'bp_status': _bpStatus(r['value1']?.toDouble() ?? 0, r['value2']?.toDouble() ?? 0),
       }).toList();
@@ -117,7 +117,7 @@ class _BPTrackerScreenState extends State<BPTrackerScreen> {
                 Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   const Text('BLOOD PRESSURE', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1.2, color: Colors.white70)),
                   const SizedBox(height: 6),
-                  Text(latest != null ? '${latest['value_1']?.toInt()}/${latest['value_2']?.toInt()}' : '—',
+                  Text(latest != null ? '${latest['value1']?.toInt()}/${latest['value2']?.toInt()}' : '—',
                       style: const TextStyle(fontFamily: 'monospace', fontSize: 40, fontWeight: FontWeight.w700, color: Colors.white, height: 1)),
                   const Text('mmHg', style: TextStyle(fontSize: 12, color: Colors.white60)),
                   const SizedBox(height: 6),
@@ -132,9 +132,9 @@ class _BPTrackerScreenState extends State<BPTrackerScreen> {
 
             // ── Stats row ─────────────────────────────────────
             Row(children: [
-              _SmallCard('📊', 'Avg Sys', _readings.isNotEmpty ? '${(_readings.map((r) => (r['value_1'] ?? 0) as num).reduce((a,b)=>a+b) / _readings.length).toInt()}' : '—', AppColors.danger, isDark, card, brd, tp),
+              _SmallCard('📊', 'Avg Sys', _readings.isNotEmpty ? '${(_readings.map((r) => (r['value1'] ?? 0) as num).reduce((a,b)=>a+b) / _readings.length).toInt()}' : '—', AppColors.danger, isDark, card, brd, tp),
               const SizedBox(width: 12),
-              _SmallCard('📊', 'Avg Dia', _readings.isNotEmpty ? '${(_readings.map((r) => (r['value_2'] ?? 0) as num).reduce((a,b)=>a+b) / _readings.length).toInt()}' : '—', AppColors.info, isDark, card, brd, tp),
+              _SmallCard('📊', 'Avg Dia', _readings.isNotEmpty ? '${(_readings.map((r) => (r['value2'] ?? 0) as num).reduce((a,b)=>a+b) / _readings.length).toInt()}' : '—', AppColors.info, isDark, card, brd, tp),
               const SizedBox(width: 12),
               _SmallCard('📋', 'Readings', '${_readings.length}', AppColors.violet, isDark, card, brd, tp),
             ]),
@@ -201,9 +201,9 @@ class _BPTrackerScreenState extends State<BPTrackerScreen> {
                       Container(width: 4, height: 38, decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(2))),
                       const SizedBox(width: 12),
                       Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text('${r['value_1']?.toInt() ?? '—'}/${r['value_2']?.toInt() ?? '—'} mmHg',
+                        Text('${r['value1']?.toInt() ?? '—'}/${r['value2']?.toInt() ?? '—'} mmHg',
                             style: TextStyle(fontFamily: 'monospace', fontSize: 15, fontWeight: FontWeight.w600, color: tp)),
-                        Text('${r['bp_status'] ?? ''}${r['value_3'] != null ? '  •  Pulse: ${r['value_3']?.toInt()}' : ''}',
+                        Text('${r['bp_status'] ?? ''}${r['value3'] != null ? '  •  Pulse: ${r['value3']?.toInt()}' : ''}',
                             style: TextStyle(fontSize: 11, color: c)),
                       ])),
                       Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -225,8 +225,8 @@ class _BPTrackerScreenState extends State<BPTrackerScreen> {
     final rev = _readings.reversed.toList().take(14).toList();
     final spotsS = <FlSpot>[], spotsD = <FlSpot>[];
     for (int i = 0; i < rev.length; i++) {
-      spotsS.add(FlSpot(i.toDouble(), (rev[i]['value_1'] ?? 0).toDouble()));
-      spotsD.add(FlSpot(i.toDouble(), (rev[i]['value_2'] ?? 0).toDouble()));
+      spotsS.add(FlSpot(i.toDouble(), (rev[i]['value1'] ?? 0).toDouble()));
+      spotsD.add(FlSpot(i.toDouble(), (rev[i]['value2'] ?? 0).toDouble()));
     }
     return LineChart(LineChartData(
       gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (_) => FlLine(color: isDark ? Colors.white10 : Colors.grey.shade100, strokeWidth: 1)),

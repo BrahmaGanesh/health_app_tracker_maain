@@ -113,7 +113,7 @@ class _OverviewTab extends StatelessWidget {
             Text('⚖️ Weight & BMI', style: TextStyle(fontFamily: 'Fraunces', fontSize: 16, fontWeight: FontWeight.bold, color: tp)),
             const SizedBox(height: 12),
             Row(children: [
-              _Kpi('Current', '${weight!['latest']?['value_1'] ?? '—'} kg', AppColors.violet, isDark),
+              _Kpi('Current', '${weight!['latest']?['value1'] ?? '—'} kg', AppColors.violet, isDark),
               const SizedBox(width: 12),
               _Kpi('BMI', '${weight!['bmi'] ?? '—'}', AppColors.sage, isDark),
               const SizedBox(width: 12),
@@ -128,7 +128,7 @@ class _OverviewTab extends StatelessWidget {
             Text('🩺 Blood Sugar', style: TextStyle(fontFamily: 'Fraunces', fontSize: 16, fontWeight: FontWeight.bold, color: tp)),
             const SizedBox(height: 12),
             Row(children: [
-              _Kpi('Fasting', '${sugar!['latest']?['value_1']?.toInt() ?? '—'} mg', AppColors.sugar, isDark),
+              _Kpi('Fasting', '${sugar!['latest']?['value1']?.toInt() ?? '—'} mg', AppColors.sugar, isDark),
               const SizedBox(width: 12),
               _Kpi('Status', sugar!['status'] ?? '—',
                   sugar!['status'] == 'Normal' ? AppColors.success : sugar!['status'] == 'Pre-Diabetic' ? AppColors.warning : AppColors.danger, isDark),
@@ -182,8 +182,8 @@ class _BPTab extends StatelessWidget {
     final rev  = readings.reversed.toList().take(20).toList();
     final spotsS = <FlSpot>[], spotsD = <FlSpot>[];
     for (int i = 0; i < rev.length; i++) {
-      spotsS.add(FlSpot(i.toDouble(), (rev[i]['value_1'] ?? 0).toDouble()));
-      spotsD.add(FlSpot(i.toDouble(), (rev[i]['value_2'] ?? 0).toDouble()));
+      spotsS.add(FlSpot(i.toDouble(), (rev[i]['value1'] ?? 0).toDouble()));
+      spotsD.add(FlSpot(i.toDouble(), (rev[i]['value2'] ?? 0).toDouble()));
     }
     return LineChart(LineChartData(
       gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (_) => FlLine(color: isDark ? Colors.white10 : Colors.grey.shade100, strokeWidth: 1)),

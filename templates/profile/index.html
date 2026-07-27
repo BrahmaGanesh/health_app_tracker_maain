@@ -193,13 +193,13 @@
     <div class="ic-body">
       <div class="info-row">
         <span class="info-key">Blood Pressure</span>
-        <span class="info-val mono" style="{% if latest_bp and latest_bp.value_1 >= 140 %}color:#ef4444;{% endif %}">
-          {% if latest_bp %}{{ latest_bp.value_1|int }}/{{ latest_bp.value_2|int }} mmHg{% else %}—{% endif %}
+        <span class="info-val mono" style="{% if latest_bp and latest_bp.value1 >= 140 %}color:#ef4444;{% endif %}">
+          {% if latest_bp %}{{ latest_bp.value1|int }}/{{ latest_bp.value2|int }} mmHg{% else %}—{% endif %}
         </span>
       </div>
       <div class="info-row">
         <span class="info-key">Weight</span>
-        <span class="info-val mono">{% if latest_weight %}{{ latest_weight.value_1 }}kg{% else %}—{% endif %}</span>
+        <span class="info-val mono">{% if latest_weight %}{{ latest_weight.value1 }}kg{% else %}—{% endif %}</span>
       </div>
       <div class="info-row">
         <span class="info-key">Last BP Check</span>

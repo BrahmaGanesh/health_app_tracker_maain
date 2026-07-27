@@ -44,12 +44,22 @@ class AppColors {
   static const Color bpCrisis   = Color(0xFFB91C1C);
 
   // ── Feature Colors ────────────────────────────────────────────
-  static const Color water    = Color(0xFF0EA5E9);
-  static const Color medicine = Color(0xFF8B5CF6);
-  static const Color exercise = Color(0xFF047857);
-  static const Color sleep    = Color(0xFF7C3AED);
-  static const Color sugar    = Color(0xFFF59E0B);
-  static const Color document = Color(0xFF4F3B78);
+  static const Color water       = Color(0xFF0EA5E9);
+  static const Color medicine    = Color(0xFF8B5CF6);
+  static const Color exercise    = Color(0xFF047857);
+  static const Color sleep       = Color(0xFF7C3AED);
+  static const Color sugar       = Color(0xFFF59E0B);
+  static const Color document    = Color(0xFF4F3B78);
+  static const Color appointment = Color(0xFF3B82F6);
+  static const Color lab         = Color(0xFFF59E0B);
+  static const Color family      = Color(0xFFEC4899);
+  static const Color timeline    = Color(0xFF22C55E);
+  static const Color score       = Color(0xFF10B981);
+  static const Color heart       = Color(0xFFEF4444);
+
+  // ── Border ────────────────────────────────────────────────────
+  static const Color borderLight = Color(0xFFE2E8F0);
+  static const Color borderDark  = Color(0xFF1E3250);
 }
 
 class AppTheme {

@@ -393,7 +393,7 @@ def edit():
                     wm = HealthMetric(
                         user_id=current_user.id,
                         metric_type="weight",
-                        value_1=new_weight,
+                        value1=new_weight,
                         unit="kg"
                     )
                     db.session.add(wm)

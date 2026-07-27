@@ -590,7 +590,7 @@
   <div class="bp-stat-card">
     <div class="sc-lbl"><span class="pulse-dot"></span> Latest Reading</div>
     {% if latest %}
-      <div class="sc-val red">{{ latest.value_1|int }}/{{ latest.value_2|int }}</div>
+      <div class="sc-val red">{{ latest.value1|int }}/{{ latest.value2|int }}</div>
       <div class="sc-sub">
         Pulse: <strong>{{ latest.value_3|int if latest.value_3 else '—' }}</strong> bpm ·
         {{ latest.recorded_at.strftime('%d %b %I:%M %p') }}
@@ -785,9 +785,9 @@
       </thead>
       <tbody>
         {% for r in readings %}
-        {% set status_text = 'Normal' if r.value_1 < 120 and r.value_2 < 80
-                        else ('Elevated' if r.value_1 < 130 and r.value_2 < 80
-                        else ('High' if r.value_1 < 180 or r.value_2 < 120
+        {% set status_text = 'Normal' if r.value1 < 120 and r.value2 < 80
+                        else ('Elevated' if r.value1 < 130 and r.value2 < 80
+                        else ('High' if r.value1 < 180 or r.value2 < 120
                         else 'Crisis')) %}
         {% set status_cls  = 'normal' if status_text == 'Normal'
                         else ('elevated' if status_text == 'Elevated'
@@ -798,13 +798,13 @@
             <div style="font-size:11px; color:var(--text-muted);">{{ r.recorded_at.strftime('%I:%M %p') }}</div>
           </td>
           <td>
-            <span class="bp-reading-combined {% if r.value_1 >= 160 %}high{% endif %}">
-              {{ r.value_1|int }}/{{ r.value_2|int }}
+            <span class="bp-reading-combined {% if r.value1 >= 160 %}high{% endif %}">
+              {{ r.value1|int }}/{{ r.value2|int }}
             </span>
           </td>
-          <td style="font-family:'DM Mono',monospace; font-size:14px; {% if r.value_1 >= 140 %}color:#ef4444;{% endif %}">{{ r.value_1|int }}</td>
-          <td style="font-family:'DM Mono',monospace; font-size:14px; {% if r.value_2 >= 90 %}color:#ef4444;{% endif %}">{{ r.value_2|int }}</td>
-          <td style="font-family:'DM Mono',monospace; font-size:14px;">{{ r.value_3|int if r.value_3 else '—' }}</td>
+          <td style="font-family:'DM Mono',monospace; font-size:14px; {% if r.value1 >= 140 %}color:#ef4444;{% endif %}">{{ r.value1|int }}</td>
+          <td style="font-family:'DM Mono',monospace; font-size:14px; {% if r.value2 >= 90 %}color:#ef4444;{% endif %}">{{ r.value2|int }}</td>
+          <td style="font-family:'DM Mono',monospace; font-size:14px;">{{ r.value3|int if r.value_3 else '—' }}</td>
           <td><span class="bp-badge {{ status_cls }}">{{ status_text }}</span></td>
           <td>
             <a href="{{ url_for('bp.delete_bp', bp_id=r.id) }}"

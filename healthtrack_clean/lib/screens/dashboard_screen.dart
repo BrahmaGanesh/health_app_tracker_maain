@@ -578,7 +578,7 @@ Widget build(BuildContext context) {
     final Map<String, dynamic> sleepLatest = _map(sleep['last_night']);
 
     final String bpStr = bpLatest.isNotEmpty
-        ? '${_int(bpLatest['value_1'])}/${_int(bpLatest['value_2'])}'
+        ? '${_int(bpLatest['value1'])}/${_int(bpLatest['value2'])}'
         : '—';
     final String bpStatus = _text(bp['status'], fallback: 'No Reading');
 
@@ -608,7 +608,7 @@ Widget build(BuildContext context) {
           emoji: '⚖️',
           label: 'Weight',
           value: weightLatest.isNotEmpty
-              ? '${_text(weightLatest['value_1'])} kg'
+              ? '${_text(weightLatest['value1'])} kg'
               : '—',
           sub: _text(weight['bmi_status'], fallback: 'No data'),
           color: AppColors.violet,
@@ -638,7 +638,7 @@ Widget build(BuildContext context) {
           emoji: '🩺',
           label: 'Blood Sugar',
           value: sugarLatest.isNotEmpty
-              ? '${_int(sugarLatest['value_1'])} mg'
+              ? '${_int(sugarLatest['value1'])} mg'
               : '—',
           sub: _text(sugar['status'], fallback: 'No reading'),
           color: AppColors.sugar,
