@@ -128,8 +128,9 @@ def dashboard():
             "id": med.id,
             "name": med.name,
             "dosage": med.dosage,
-            "timing": med.timing,
-            "taken": log.taken if log else False,
+            "schedule_type": med.schedule_type,
+            "custom_times": med.custom_times,
+            "reminder_enabled": med.reminder_enabled,
         })
 
     meds_taken = sum(1 for m in meds_today if m["taken"])
