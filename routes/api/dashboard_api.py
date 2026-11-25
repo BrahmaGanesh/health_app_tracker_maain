@@ -133,7 +133,7 @@ def dashboard():
             "reminder_enabled": med.reminder_enabled,
         })
 
-    meds_taken = sum(1 for m in meds_today if m["taken"])
+    meds_taken = sum(1 for m in meds_today if m.get("taken", False))
 
     week_start = today - timedelta(days=today.weekday())
     insights = WeeklyInsight.query.filter_by(

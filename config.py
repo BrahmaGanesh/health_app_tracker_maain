@@ -164,8 +164,14 @@ class ProductionConfig(Config):
     DEBUG                   = False
     TESTING                 = False
     SESSION_COOKIE_SECURE   = True
-    SQLALCHEMY_ECHO         = False
     WTF_CSRF_SSL_STRICT     = True
+    ENV                   = 'production'
+    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///health_tracker.db')
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    PERMANENT_SESSION_LIFETIME  = timedelta(days=30)
+    REMEMBER_COOKIE_DURATION    = timedelta(days=30)
+    ENV                   = 'production'
+    TESTING                 = False
 
 
 class TestingConfig(Config):

@@ -1,0 +1,14 @@
+[build]
+  command = "python app.py"
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  included_files = ["**/*.js", "**/*.json", "**/*.node"]
+  external_node_modules = []
+
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/app/:splat"
+  status = 200

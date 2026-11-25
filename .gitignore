@@ -41,3 +41,5 @@ venv/
 .env
 instance/
 *.sqlite3test_ai.sh
+# Local Netlify folder
+.netlify

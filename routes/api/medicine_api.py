@@ -301,9 +301,9 @@ def ai_verify_medicine(mid):
 # ADHERENCE + HISTORY
 # ════════════════════════════════════════════════════════════════
 
-@medicine_api_bp.route("/<int:mid>/history", methods=["GET"])
+@medicine_api_bp.route("/<int:mid>/adherence", methods=["GET"])
 @jwt_required()
-def medicine_history(mid):
+def medicine_adherence(mid):
     uid  = get_jwt_identity()
     Medicine.query.filter_by(id=mid, user_id=uid).first_or_404()
     days = request.args.get("days", 30, type=int)
@@ -323,6 +323,12 @@ def medicine_history(mid):
         "skipped_count": len(skipped),
         "calendar":      [{"date":str(l.log_date),"status":l.status,"emoji":l.STATUS_EMOJI.get(l.status,"🟡")} for l in logs],
     }})
+
+@medicine_api_bp.route("/<int:mid>/history", methods=["GET"])
+@jwt_required()
+def medicine_history(mid):
+    """Alias for /adherence endpoint for backward compatibility."""
+    return medicine_adherence(mid)
 
 
 @medicine_api_bp.route("/<int:mid>/stock", methods=["POST"])

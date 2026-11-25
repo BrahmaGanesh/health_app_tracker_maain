@@ -1,17 +1,22 @@
-# routes/api/health_modules_api.py
-# Lab Tests, Doctor Visits, Appointments, Emergency Card,
-# Habits, Timeline, AI Assistant, Subscription, Trusted Contacts
-
 from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
 from extensions import db
-from models import now_ist, today_ist, HabitLog, User , LabTest,DoctorVisit,Appointment,EmergencyCard,TrustedContact,UserSubscription,HealthTimelineEvent
-# from models_new_modules import (
-#
-# )
+from models import (
+    now_ist,
+    today_ist,
+    HabitLog,
+    User,
+    LabTest,
+    DoctorVisit,
+    Appointment,
+    EmergencyCard,
+    TrustedContact,
+    UserSubscription,
+    HealthTimelineEvent,
+)
 
 import os
 import base64
@@ -19,25 +24,53 @@ import json
 import re
 import google.generativeai as genai
 
-# =====================================================
-# Gemini Configuration
-# =====================================================
-
+# Try to load API key from environment, but don't fail if not set
 api_key = os.getenv("GEMINI_API_KEY")
 
-if not api_key:
-    raise RuntimeError("GEMINI_API_KEY is not set.")
+# Initialize vision model for image analysis (if API key available)
+vision_model = None
+if api_key:
+    try:
+        genai.configure(api_key=api_key)
+        # Use gemini-pro for general chat, gemini-pro-vision for image analysis
+        vision_model = genai.GenerativeModel('gemini-pro-vision')
+    except Exception:
+        vision_model = None
 
-genai.configure(api_key=api_key)
-
-vision_model = genai.GenerativeModel("gemini-flash-latest")
+# Continue with the rest of the module even if API key is not set
+# The AI features will be disabled if no key is configured
 
 modules_api_bp = Blueprint("modules_api", __name__)
 
 
-# ════════════════════════════════════════════════════════════════
-# MODULE 8 — LAB TEST TRACKER
-# ════════════════════════════════════════════════════════════════
+def _parse_date(val):
+    if not val:
+        return today_ist()
+    try:
+        return datetime.strptime(str(val)[:10], "%Y-%m-%d").date()
+    except Exception:
+        return today_ist()
+
+
+def _json():
+    return request.get_json(silent=True) or {}
+
+
+def _auto_create_followup(user_id, visit):
+    if not visit.follow_up_date:
+        return
+
+    appt = Appointment(
+        user_id=user_id,
+        title=f"Follow-up: Dr. {visit.doctor_name or 'Unknown'}",
+        appointment_type="doctor",
+        appointment_date=visit.follow_up_date,
+        location=visit.hospital,
+        notes=f"Follow-up for: {visit.diagnosis or 'Previous visit'}",
+        member_id=visit.member_id,
+    )
+    db.session.add(appt)
+
 
 @modules_api_bp.route("/lab-tests/", methods=["GET", "POST"])
 @jwt_required()
@@ -45,10 +78,10 @@ def lab_tests():
     uid = get_jwt_identity()
 
     if request.method == "GET":
-        test_type = request.args.get("test_type", "blood_sugar")
+        test_category = request.args.get("test_category", "blood_sugar")
         member_id = request.args.get("member_id", type=int)
 
-        q = LabTest.query.filter_by(user_id=uid, test_type=test_type)
+        q = LabTest.query.filter_by(user_id=uid, test_category=test_category)
         if member_id:
             q = q.filter_by(member_id=member_id)
 
@@ -58,17 +91,17 @@ def lab_tests():
             "data": {
                 "tests": [t.to_dict() for t in tests],
                 "latest": tests[0].to_dict() if tests else None,
-                "test_type": test_type,
+                "test_category": test_category,
             }
         })
 
-    d = request.get_json() or {}
-    if not d.get("test_type") or d.get("value") is None:
-        return jsonify({"success": False, "message": "test_type and value required"}), 400
+    d = _json()
+    if not d.get("test_category") or d.get("value") is None:
+        return jsonify({"success": False, "message": "test_category and value required"}), 400
 
     test = LabTest(
         user_id=uid,
-        test_type=d["test_type"],
+        test_category=d["test_category"],
         value=float(d["value"]),
         unit=d.get("unit", ""),
         lab_name=d.get("lab_name", "").strip() or None,
@@ -82,7 +115,7 @@ def lab_tests():
         user_id=uid,
         event_type="lab",
         event_date=test.test_date,
-        title=f"🧪 {test.test_type.replace('_', ' ').title()}: {test.value} {test.unit or ''}".strip(),
+        title=f"🧪 {test.test_category.replace('_', ' ').title()}: {test.value} {test.unit or ''}".strip(),
         description=f"Lab: {test.lab_name or 'Unknown'} · Status: {getattr(test, 'status', 'Recorded')}",
         icon="🧪",
         member_id=test.member_id,
@@ -114,9 +147,65 @@ def lab_test_types():
     return jsonify({"success": True, "data": {"types": [r[0] for r in rows]}})
 
 
-# ════════════════════════════════════════════════════════════════
-# MODULE 9 — DOCTOR VISITS
-# ════════════════════════════════════════════════════════════════
+@modules_api_bp.route("/lab-tests/dashboard", methods=["GET"])
+@jwt_required()
+def lab_tests_dashboard():
+    uid = get_jwt_identity()
+    member_id = request.args.get("member_id", type=int)
+
+    q = LabTest.query.filter_by(user_id=uid)
+    if member_id:
+        q = q.filter_by(member_id=member_id)
+
+    tests = q.order_by(LabTest.test_date.desc()).limit(100).all()
+    latest = tests[0].to_dict() if tests else None
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "total_tests": len(tests),
+            "latest": latest,
+            "tests": [t.to_dict() for t in tests[:20]],
+        }
+    })
+
+
+@modules_api_bp.route("/lab-tests/graph", methods=["GET"])
+@jwt_required()
+def lab_tests_graph():
+    uid = get_jwt_identity()
+    category = request.args.get("category", "blood_sugar")
+    period = request.args.get("period", "6m")
+    member_id = request.args.get("member_id", type=int)
+
+    q = LabTest.query.filter_by(user_id=uid, test_category=category)
+    if member_id:
+        q = q.filter_by(member_id=member_id)
+
+    tests = q.order_by(LabTest.test_date.asc()).all()
+
+    days_map = {"1m": 30, "3m": 90, "6m": 180, "1y": 365}
+    cutoff = today_ist() - timedelta(days=days_map.get(period, 180))
+
+    points = []
+    for t in tests:
+        if t.test_date and t.test_date >= cutoff:
+            points.append({
+                "date": str(t.test_date),
+                "value": t.value,
+                "unit": t.unit,
+                "lab_name": t.lab_name,
+            })
+
+    return jsonify({
+        "success": True,
+        "data": {
+            "category": category,
+            "period": period,
+            "points": points,
+        }
+    })
+
 
 @modules_api_bp.route("/doctor-visits/", methods=["GET", "POST"])
 @jwt_required()
@@ -132,7 +221,7 @@ def doctor_visits():
         visits = q.order_by(DoctorVisit.visit_date.desc()).limit(50).all()
         return jsonify({"success": True, "data": {"visits": [v.to_dict() for v in visits]}})
 
-    d = request.get_json() or {}
+    d = _json()
     visit = DoctorVisit(
         user_id=uid,
         visit_date=_parse_date(d.get("visit_date")),
@@ -180,10 +269,6 @@ def delete_doctor_visit(vid):
     return jsonify({"success": True, "message": "Deleted"})
 
 
-# ════════════════════════════════════════════════════════════════
-# MODULE 10 — APPOINTMENTS
-# ════════════════════════════════════════════════════════════════
-
 @modules_api_bp.route("/appointments/", methods=["GET", "POST"])
 @jwt_required()
 def appointments():
@@ -211,7 +296,7 @@ def appointments():
             }
         })
 
-    d = request.get_json() or {}
+    d = _json()
     if not d.get("title") or not d.get("appointment_date"):
         return jsonify({"success": False, "message": "title and appointment_date required"}), 400
 
@@ -246,7 +331,7 @@ def appointment_detail(aid):
         db.session.commit()
         return jsonify({"success": True, "message": "Deleted"})
 
-    d = request.get_json() or {}
+    d = _json()
     for f in ["title", "appointment_type", "appointment_time", "location", "notes"]:
         if f in d:
             setattr(appt, f, d[f])
@@ -276,10 +361,6 @@ def complete_appointment(aid):
     return jsonify({"success": True, "message": "✅ Appointment completed"})
 
 
-# ════════════════════════════════════════════════════════════════
-# MODULE 14 — EMERGENCY CARD
-# ════════════════════════════════════════════════════════════════
-
 @modules_api_bp.route("/emergency-card/", methods=["GET", "POST"])
 @jwt_required()
 def emergency_card():
@@ -291,9 +372,7 @@ def emergency_card():
     medicines = []
     try:
         from models import Medicine
-        medicines = [
-            m.name for m in Medicine.query.filter_by(user_id=uid, is_active=True).limit(10).all()
-        ]
+        medicines = [m.name for m in Medicine.query.filter_by(user_id=uid, is_active=True).limit(10).all()]
     except Exception:
         medicines = []
 
@@ -330,7 +409,7 @@ def emergency_card():
             }
         })
 
-    d = request.get_json() or {}
+    d = _json()
     if not card:
         card = EmergencyCard(user_id=uid)
         db.session.add(card)
@@ -345,10 +424,6 @@ def emergency_card():
     return jsonify({"success": True, "message": "Emergency card updated"})
 
 
-# ════════════════════════════════════════════════════════════════
-# MODULE 15 — TRUSTED CONTACTS
-# ════════════════════════════════════════════════════════════════
-
 @modules_api_bp.route("/emergency-alerts/contacts", methods=["GET", "POST"])
 @jwt_required()
 def trusted_contacts():
@@ -358,7 +433,7 @@ def trusted_contacts():
         contacts = TrustedContact.query.filter_by(user_id=uid).all()
         return jsonify({"success": True, "data": {"contacts": [c.to_dict() for c in contacts]}})
 
-    d = request.get_json() or {}
+    d = _json()
     if not d.get("name"):
         return jsonify({"success": False, "message": "Contact name required"}), 400
 
@@ -391,10 +466,6 @@ def delete_trusted_contact(cid):
     return jsonify({"success": True, "message": "Contact removed"})
 
 
-# ════════════════════════════════════════════════════════════════
-# MODULE 20 — HEALTH TIMELINE
-# ════════════════════════════════════════════════════════════════
-
 @modules_api_bp.route("/timeline/", methods=["GET"])
 @jwt_required()
 def timeline():
@@ -424,15 +495,11 @@ def timeline():
     })
 
 
-# ════════════════════════════════════════════════════════════════
-# MODULE 19 — AI WELLNESS ASSISTANT
-# ════════════════════════════════════════════════════════════════
-
-@modules_api_bp.route("/cla ude/chat", methods=["POST"])
+@modules_api_bp.route("/claude/chat", methods=["POST"])
 @jwt_required()
 def ai_chat():
     uid = get_jwt_identity()
-    d = request.get_json() or {}
+    d = _json()
     message = d.get("message", "").strip()
     history = d.get("history", [])
 
@@ -481,26 +548,22 @@ health and wellness advice. Important rules:
     return jsonify({"success": True, "data": {"reply": reply, "role": "assistant"}})
 
 
-# ════════════════════════════════════════════════════════════════
-# MODULE 6 — AI CAMERA
-# ════════════════════════════════════════════════════════════════
-
 @modules_api_bp.route("/ai-camera/food", methods=["POST"])
 @jwt_required()
 def analyze_food():
-
-    d = request.get_json() or {}
+    d = _json()
     image = d.get("image", "")
 
     if not image:
+        return jsonify({"success": False, "message": "image required"}), 400
+
+    if vision_model is None:
         return jsonify({
             "success": False,
-            "message": "image required"
-        }), 400
+            "message": "AI vision analysis is not configured. Please set GEMINI_API_KEY environment variable."
+        }), 503
 
     try:
-
-        # Remove data:image/jpeg;base64, if present
         if "," in image:
             image = image.split(",", 1)[1]
 
@@ -523,56 +586,41 @@ Return ONLY valid JSON.
 }
 """
 
-        response = vision_model.generate_content(
-            [
-                prompt,
-                {
-                    "mime_type": "image/jpeg",
-                    "data": image_bytes
-                }
-            ]
-        )
+        response = vision_model.generate_content([
+            prompt,
+            {"mime_type": "image/jpeg", "data": image_bytes}
+        ])
 
         text = response.text
-
         match = re.search(r"\{.*\}", text, re.DOTALL)
 
         if match:
             data = json.loads(match.group())
         else:
-            data = {
-                "food_name": "Unknown",
-                "notes": text
-            }
+            data = {"food_name": "Unknown", "notes": text}
 
     except Exception as e:
+        data = {"food_name": "Analysis unavailable", "notes": str(e)}
 
-        data = {
-            "food_name": "Analysis unavailable",
-            "notes": str(e)
-        }
-
-    return jsonify({
-        "success": True,
-        "data": data
-    })
+    return jsonify({"success": True, "data": data})
 
 
 @modules_api_bp.route("/ai-camera/medicine", methods=["POST"])
 @jwt_required()
 def analyze_medicine():
-
-    d = request.get_json() or {}
+    d = _json()
     image = d.get("image", "")
 
     if not image:
+        return jsonify({"success": False, "message": "image required"}), 400
+
+    if vision_model is None:
         return jsonify({
             "success": False,
-            "message": "image required"
-        }), 400
+            "message": "AI vision analysis is not configured. Please set GEMINI_API_KEY environment variable."
+        }), 503
 
     try:
-
         if "," in image:
             image = image.split(",", 1)[1]
 
@@ -593,44 +641,24 @@ Return ONLY valid JSON.
 }
 """
 
-        response = vision_model.generate_content(
-            [
-                prompt,
-                {
-                    "mime_type": "image/jpeg",
-                    "data": image_bytes
-                }
-            ]
-        )
+        response = vision_model.generate_content([
+            prompt,
+            {"mime_type": "image/jpeg", "data": image_bytes}
+        ])
 
         text = response.text
-
         match = re.search(r"\{.*\}", text, re.DOTALL)
 
         if match:
             data = json.loads(match.group())
         else:
-            data = {
-                "medicine_name": "Unknown",
-                "notes": text
-            }
+            data = {"medicine_name": "Unknown", "notes": text}
 
     except Exception as e:
+        data = {"medicine_name": "Analysis unavailable", "notes": str(e)}
 
-        data = {
-            "medicine_name": "Analysis unavailable",
-            "notes": str(e)
-        }
+    return jsonify({"success": True, "data": data})
 
-    return jsonify({
-        "success": True,
-        "data": data
-    })
-
-
-# ════════════════════════════════════════════════════════════════
-# SUBSCRIPTION STATUS
-# ════════════════════════════════════════════════════════════════
 
 @modules_api_bp.route("/subscription/status", methods=["GET"])
 @jwt_required()
@@ -650,7 +678,7 @@ def subscription_status():
 @jwt_required()
 def verify_purchase():
     uid = get_jwt_identity()
-    d = request.get_json() or {}
+    d = _json()
     purchase_token = d.get("purchase_token", "")
     product_id = d.get("product_id", "")
 
@@ -691,10 +719,6 @@ def cancel_subscription():
     return jsonify({"success": True, "message": "Auto-renewal cancelled"})
 
 
-# ════════════════════════════════════════════════════════════════
-# HEALTH SCORE HISTORY
-# ════════════════════════════════════════════════════════════════
-
 @modules_api_bp.route("/health-score/", methods=["GET"])
 @jwt_required()
 def health_score():
@@ -726,30 +750,3 @@ def health_score_history():
             ],
         }
     })
-
-
-# ── Helpers ────────────────────────────────────────────────────────
-
-def _parse_date(val):
-    if not val:
-        return today_ist()
-    try:
-        return datetime.strptime(str(val)[:10], "%Y-%m-%d").date()
-    except Exception:
-        return today_ist()
-
-
-def _auto_create_followup(user_id, visit):
-    if not visit.follow_up_date:
-        return
-
-    appt = Appointment(
-        user_id=user_id,
-        title=f"Follow-up: Dr. {visit.doctor_name or 'Unknown'}",
-        appointment_type="doctor",
-        appointment_date=visit.follow_up_date,
-        location=visit.hospital,
-        notes=f"Follow-up for: {visit.diagnosis or 'Previous visit'}",
-        member_id=visit.member_id,
-    )
-    db.session.add(appt)

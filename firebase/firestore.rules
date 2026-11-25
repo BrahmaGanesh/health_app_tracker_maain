@@ -1,0 +1,270 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ============================================================
+    // USER-SPECIFIC COLLECTIONS
+    // All health data is scoped to user ID for privacy
+    // ============================================================
+
+    // User profile & settings
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      // User settings
+      match /settings/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Health profile
+      match /health_profile/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Health goals
+      match /goals/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Health metrics (BP, Weight, Water, Sugar, Sleep, Heart Rate, Steps)
+      match /health_metrics/{metricId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Blood pressure readings
+      match /blood_pressure/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Blood sugar readings
+      match /blood_sugar/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Weight records
+      match /weight_records/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Water intake records
+      match /water_records/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Sleep records
+      match /sleep_records/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Heart rate records
+      match /heart_rate/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Step count records
+      match /steps/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Symptoms
+      match /symptoms/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Medicines
+      match /medicines/{medicineId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+
+        match /logs/{logId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+
+        match /schedules/{scheduleId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+
+        match /stock/{stockId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+
+      // Meals & Nutrition
+      match /meals/{mealId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /meal_plans/{planId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+
+        match /items/{itemId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+
+      match /recipes/{recipeId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /grocery_lists/{itemId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /nutrition_logs/{logId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Exercise & Activity
+      match /exercises/{exerciseId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /activity_records/{recordId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /breathing_sessions/{sessionId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Lab Tests
+      match /lab_tests/{testId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Appointments
+      match /appointments/{apptId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Documents
+      match /documents/{docId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Family
+      match /family_members/{memberId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+
+        match /health_metrics/{metricId} {
+          allow read: if request.auth != null && isFamilyMemberAuthorized(userId, memberId);
+          allow write: if request.auth != null && request.auth.uid == userId;
+        }
+
+        match /medicines/{medicineId} {
+          allow read: if request.auth != null && isFamilyMemberAuthorized(userId, memberId);
+          allow write: if request.auth != null && request.auth.uid == userId;
+        }
+
+        match /appointments/{apptId} {
+          allow read: if request.auth != null && isFamilyMemberAuthorized(userId, memberId);
+          allow write: if request.auth != null && request.auth.uid == userId;
+        }
+
+        match /documents/{docId} {
+          allow read: if request.auth != null && isFamilyMemberAuthorized(userId, memberId);
+          allow write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+
+      // Reminders & Notifications
+      match /reminders/{reminderId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      match /notifications/{notificationId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Health Timeline
+      match /health_timeline/{eventId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Habits
+      match /habits/{habitId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+
+        match /logs/{logId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+
+      // Emergency Card
+      match /emergency_card/{docId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if request.auth != null && request.auth.uid == userId;
+
+        // Allow read by emergency contacts via QR code token
+        match /public/{token} {
+          allow read: if request.resource.data.shareable == true;
+        }
+      }
+
+      // Health Scores
+      match /health_scores/{scoreId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Health Reports
+      match /health_reports/{reportId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+
+      // Subscription
+      match /subscription/{docId} {
+        allow read: if request.auth != null && request.auth.uid == userId;
+        allow write: if request.auth != null && isAdmin(request.auth.uid);
+      }
+
+      // Trusted Contacts
+      match /trusted_contacts/{contactId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // ============================================================
+    // ADMIN COLLECTIONS
+    // ============================================================
+    match /admin_audit_logs/{logId} {
+      allow read, write: if request.auth != null && isAdmin(request.auth.uid);
+    }
+
+    match /subscribers/{subscriberId} {
+      allow read, write: if request.auth != null && isAdmin(request.auth.uid);
+    }
+
+    match /subscription_transactions/{transactionId} {
+      allow read, write: if request.auth != null && isAdmin(request.auth.uid);
+    }
+
+    // ============================================================
+    // SHARED/COMMUNITY DATA (Read-only for authenticated users)
+    // ============================================================
+    match /exercise_library/{exerciseId} {
+      allow read: if request.auth != null;
+    }
+
+    match /recipes/{recipeId} {
+      allow read: if request.auth != null;
+    }
+
+    match /health_conditions/{conditionId} {
+      allow read: if request.auth != null;
+    }
+
+    // ============================================================
+    // FUNCTIONS
+    // ============================================================
+    function isAdmin(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.is_admin == true;
+    }
+
+    function isFamilyMemberAuthorized(ownerId, memberId) {
+      // Check if the requesting user is the owner or an authorized family member
+      let memberRef = get(/databases/$(database)/documents/users/$(ownerId)/family_members/$(memberId));
+      return request.auth.uid == ownerId ||
+             (memberRef.data.permissions && request.auth.uid in memberRef.data.permissions.authorizedViewers);
+    }
+  }
+}

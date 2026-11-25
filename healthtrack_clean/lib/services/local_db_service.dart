@@ -1,14 +1,11 @@
-// lib/services/local_db_service.dart
-// Offline-first local SQLite database
-// Stores all health data locally → syncs to server when online
-
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 
 class LocalDb {
-  static final LocalDb _i = LocalDb._();
-  factory LocalDb() => _i;
-  LocalDb._();
+  static final LocalDb _instance = LocalDb._internal();
+  factory LocalDb() => _instance;
+  static LocalDb get i => _instance;
+  LocalDb._internal();
 
   Database? _db;
 
@@ -19,7 +16,12 @@ class LocalDb {
 
   Future<Database> _open() async {
     final path = join(await getDatabasesPath(), 'healthtrack.db');
-    return openDatabase(path, version: 2, onCreate: _onCreate, onUpgrade: _onUpgrade);
+    return openDatabase(
+      path,
+      version: 2,
+      onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
+    );
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -33,77 +35,192 @@ class LocalDb {
     }
   }
 
-  /// Tables for Module 4, 8, 9, 10, 16: Medicine, Lab Tests,
-  /// Doctor Visits, Appointments, Family, Habits, Emergency Card
+  Future<void> _createCoreTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        type TEXT NOT NULL,
+        value1 REAL,
+        value2 REAL,
+        value3 REAL,
+        notes TEXT,
+        log_date TEXT NOT NULL,
+        recorded_at TEXT NOT NULL,
+        synced INTEGER DEFAULT 0,
+        deleted INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS step_days (
+        date TEXT PRIMARY KEY,
+        steps INTEGER DEFAULT 0,
+        distance_km REAL DEFAULT 0,
+        calories INTEGER DEFAULT 0,
+        goal INTEGER DEFAULT 8000,
+        synced INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS sync_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        method TEXT NOT NULL,
+        endpoint TEXT NOT NULL,
+        body TEXT,
+        created_at TEXT NOT NULL,
+        retries INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS reminders (
+        id INTEGER PRIMARY KEY,
+        title TEXT,
+        message TEXT,
+        category TEXT,
+        remind_time TEXT,
+        repeat_interval_mins INTEGER DEFAULT 5,
+        sound_name TEXT DEFAULT 'health_alert',
+        is_active INTEGER DEFAULT 1,
+        is_done_today INTEGER DEFAULT 0,
+        last_done_date TEXT,
+        synced INTEGER DEFAULT 0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS meal_cache (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        cached_at TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS app_cache (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        cached_at TEXT
+      )
+    ''');
+  }
+
   Future<void> _createModuleTables(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS medicines (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
-        name TEXT, dosage TEXT, timing TEXT, frequency TEXT,
-        with_food TEXT, condition_name TEXT, active INTEGER DEFAULT 1,
-        stock_count INTEGER DEFAULT 0, low_stock_alert INTEGER DEFAULT 5,
-        member_id INTEGER, synced INTEGER DEFAULT 0
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        name TEXT,
+        dosage TEXT,
+        timing TEXT,
+        frequency TEXT,
+        with_food TEXT,
+        condition_name TEXT,
+        active INTEGER DEFAULT 1,
+        stock_count INTEGER DEFAULT 0,
+        low_stock_alert INTEGER DEFAULT 5,
+        member_id INTEGER,
+        synced INTEGER DEFAULT 0
       )
     ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS medicine_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        medicine_id INTEGER, log_date TEXT, taken INTEGER DEFAULT 0,
-        logged_at TEXT, synced INTEGER DEFAULT 0,
+        medicine_id INTEGER,
+        log_date TEXT,
+        taken INTEGER DEFAULT 0,
+        logged_at TEXT,
+        synced INTEGER DEFAULT 0,
         UNIQUE(medicine_id, log_date)
       )
     ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS lab_tests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
-        test_type TEXT, value REAL, unit TEXT,
-        lab_name TEXT, test_date TEXT, notes TEXT,
-        member_id INTEGER, synced INTEGER DEFAULT 0
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        test_type TEXT,
+        value REAL,
+        unit TEXT,
+        lab_name TEXT,
+        test_date TEXT,
+        notes TEXT,
+        member_id INTEGER,
+        synced INTEGER DEFAULT 0
       )
     ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS doctor_visits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
-        visit_date TEXT, doctor_name TEXT, hospital TEXT,
-        diagnosis TEXT, prescription TEXT, follow_up_date TEXT,
-        member_id INTEGER, synced INTEGER DEFAULT 0
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        visit_date TEXT,
+        doctor_name TEXT,
+        hospital TEXT,
+        diagnosis TEXT,
+        prescription TEXT,
+        follow_up_date TEXT,
+        member_id INTEGER,
+        synced INTEGER DEFAULT 0
       )
     ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS appointments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
-        title TEXT, appointment_type TEXT, appointment_date TEXT,
-        appointment_time TEXT, location TEXT, notes TEXT,
-        completed INTEGER DEFAULT 0, member_id INTEGER, synced INTEGER DEFAULT 0
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        title TEXT,
+        appointment_type TEXT,
+        appointment_date TEXT,
+        appointment_time TEXT,
+        location TEXT,
+        notes TEXT,
+        completed INTEGER DEFAULT 0,
+        member_id INTEGER,
+        synced INTEGER DEFAULT 0
       )
     ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS family_members_cache (
-        id INTEGER PRIMARY KEY, name TEXT, relation TEXT,
-        gender TEXT, dob TEXT, blood_group TEXT,
-        height_cm REAL, weight_kg REAL, conditions_json TEXT,
-        photo_path TEXT, is_primary INTEGER DEFAULT 0
+        id INTEGER PRIMARY KEY,
+        name TEXT,
+        relation TEXT,
+        gender TEXT,
+        dob TEXT,
+        blood_group TEXT,
+        height_cm REAL,
+        weight_kg REAL,
+        conditions_json TEXT,
+        photo_path TEXT,
+        is_primary INTEGER DEFAULT 0
       )
     ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS habits (
-        id INTEGER PRIMARY KEY AUTOINCREMENT, server_id INTEGER,
-        name TEXT, category TEXT, target_value REAL, unit TEXT,
-        member_id INTEGER, synced INTEGER DEFAULT 0
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        server_id INTEGER,
+        name TEXT,
+        category TEXT,
+        target_value REAL,
+        unit TEXT,
+        member_id INTEGER,
+        synced INTEGER DEFAULT 0
       )
     ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS habit_logs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        habit_id INTEGER, log_date TEXT, completed INTEGER DEFAULT 0,
-        actual_value REAL, synced INTEGER DEFAULT 0,
+        habit_id INTEGER,
+        log_date TEXT,
+        completed INTEGER DEFAULT 0,
+        actual_value REAL,
+        synced INTEGER DEFAULT 0,
         UNIQUE(habit_id, log_date)
       )
     ''');
@@ -111,160 +228,91 @@ class LocalDb {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS emergency_card (
         member_id INTEGER PRIMARY KEY,
-        blood_group TEXT, allergies TEXT, conditions TEXT,
-        medicines TEXT, emergency_contacts TEXT
+        blood_group TEXT,
+        allergies TEXT,
+        conditions TEXT,
+        medicines TEXT,
+        emergency_contacts TEXT
       )
     ''');
 
     await db.execute('''
       CREATE TABLE IF NOT EXISTS health_timeline (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        event_type TEXT, event_date TEXT, title TEXT,
-        description TEXT, icon TEXT, member_id INTEGER
+        event_type TEXT,
+        event_date TEXT,
+        title TEXT,
+        description TEXT,
+        icon TEXT,
+        member_id INTEGER
       )
     ''');
   }
-
-  /// Original core tables: metrics, step_days, sync_queue, reminders, app_cache
-  Future<void> _createCoreTables(Database db) async {
-    // ── Metrics (BP, weight, water, sugar, steps, sleep, heart rate) ──
-    await db.execute('''
-      CREATE TABLE metrics (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        server_id   INTEGER,
-        type        TEXT NOT NULL,
-        value1      REAL,
-        value2      REAL,
-        value3      REAL,
-        notes       TEXT,
-        log_date    TEXT NOT NULL,
-        recorded_at TEXT NOT NULL,
-        synced      INTEGER DEFAULT 0,
-        deleted     INTEGER DEFAULT 0
-      )
-    ''');
-
-    // ── Step daily log (one row per day, cumulative) ───────────────
-    await db.execute('''
-      CREATE TABLE step_days (
-        date          TEXT PRIMARY KEY,
-        steps         INTEGER DEFAULT 0,
-        distance_km   REAL DEFAULT 0,
-        calories      INTEGER DEFAULT 0,
-        goal          INTEGER DEFAULT 8000,
-        synced        INTEGER DEFAULT 0
-      )
-    ''');
-
-    // ── Sync queue (pending API calls) ─────────────────────────────
-    await db.execute('''
-      CREATE TABLE sync_queue (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        method      TEXT NOT NULL,
-        endpoint    TEXT NOT NULL,
-        body        TEXT,
-        created_at  TEXT NOT NULL,
-        retries     INTEGER DEFAULT 0
-      )
-    ''');
-
-    // ── Reminders (cached locally) ──────────────────────────────────
-    await db.execute('''
-      CREATE TABLE reminders (
-        id                  INTEGER PRIMARY KEY,
-        title               TEXT,
-        message             TEXT,
-        category            TEXT,
-        remind_time         TEXT,
-        repeat_interval_mins INTEGER DEFAULT 5,
-        sound_name          TEXT DEFAULT 'health_alert',
-        is_active           INTEGER DEFAULT 1,
-        is_done_today       INTEGER DEFAULT 0,
-        last_done_date      TEXT,
-        synced              INTEGER DEFAULT 0
-      )
-    ''');
-
-    // ── Meals cache ─────────────────────────────────────────────────
-    await db.execute('''
-      CREATE TABLE meal_cache (
-        key   TEXT PRIMARY KEY,
-        value TEXT,
-        cached_at TEXT
-      )
-    ''');
-
-    // ── Cached dashboard ────────────────────────────────────────────
-    await db.execute('''
-      CREATE TABLE app_cache (
-        key       TEXT PRIMARY KEY,
-        value     TEXT,
-        cached_at TEXT
-      )
-    ''');
-  }
-
-  // ════════════════════════════════════════════════════════════════
-  // METRICS
-  // ════════════════════════════════════════════════════════════════
 
   Future<int> saveMetric({
     required String type,
-    double? value1, double? value2, double? value3,
+    double? value1,
+    double? value2,
+    double? value3,
     String? notes,
   }) async {
     final d = await db;
     final now = DateTime.now();
     return d.insert('metrics', {
-      'type':        type,
-      'value1':      value1,
-      'value2':      value2,
-      'value3':      value3,
-      'notes':       notes,
-      'log_date':    now.toIso8601String().substring(0, 10),
+      'type': type,
+      'value1': value1,
+      'value2': value2,
+      'value3': value3,
+      'notes': notes,
+      'log_date': now.toIso8601String().substring(0, 10),
       'recorded_at': now.toIso8601String(),
-      'synced':      0,
+      'synced': 0,
+      'deleted': 0,
     });
   }
 
   Future<List<Map<String, dynamic>>> getMetrics(String type, {int days = 30}) async {
     final d = await db;
     final since = DateTime.now().subtract(Duration(days: days)).toIso8601String().substring(0, 10);
-    return d.query('metrics',
-        where: 'type=? AND log_date>=? AND deleted=0',
-        whereArgs: [type, since],
-        orderBy: 'recorded_at DESC');
+    return d.query(
+      'metrics',
+      where: 'type = ? AND log_date >= ? AND deleted = 0',
+      whereArgs: [type, since],
+      orderBy: 'recorded_at DESC',
+    );
   }
 
   Future<Map<String, dynamic>?> getLatestMetric(String type) async {
     final d = await db;
-    final rows = await d.query('metrics', where: 'type=? AND deleted=0', whereArgs: [type], orderBy: 'recorded_at DESC', limit: 1);
+    final rows = await d.query(
+      'metrics',
+      where: 'type = ? AND deleted = 0',
+      whereArgs: [type],
+      orderBy: 'recorded_at DESC',
+      limit: 1,
+    );
     return rows.isNotEmpty ? rows.first : null;
   }
 
   Future<int> deleteMetricLocal(int id) async {
     final d = await db;
-    return d.update('metrics', {'deleted': 1}, where: 'id=?', whereArgs: [id]);
+    return d.update('metrics', {'deleted': 1}, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<List<Map<String, dynamic>>> getUnsyncedMetrics() async {
     final d = await db;
-    return d.query('metrics', where: 'synced=0 AND deleted=0');
+    return d.query('metrics', where: 'synced = 0 AND deleted = 0');
   }
 
   Future<void> markMetricSynced(int localId, int serverId) async {
     final d = await db;
-    await d.update('metrics', {'synced': 1, 'server_id': serverId}, where: 'id=?', whereArgs: [localId]);
+    await d.update('metrics', {'synced': 1, 'server_id': serverId}, where: 'id = ?', whereArgs: [localId]);
   }
-
-  // ════════════════════════════════════════════════════════════════
-  // STEP DAILY LOG — with daily reset
-  // ════════════════════════════════════════════════════════════════
 
   Future<Map<String, dynamic>?> getTodaySteps() async {
     final d = await db;
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    final rows = await d.query('step_days', where: 'date=?', whereArgs: [today]);
+    final rows = await d.query('step_days', where: 'date = ?', whereArgs: [today]);
     return rows.isNotEmpty ? rows.first : null;
   }
 
@@ -274,7 +322,6 @@ class LocalDb {
     required double distanceKm,
   }) async {
     final d = await db;
-
     final today = DateTime.now().toIso8601String().substring(0, 10);
     final calories = (steps * 0.04).toInt();
 
@@ -292,44 +339,36 @@ class LocalDb {
     );
   }
 
-  /// Returns last N days of step data
   Future<List<Map<String, dynamic>>> getWeekSteps({int days = 7}) async {
     final d = await db;
     final since = DateTime.now().subtract(Duration(days: days - 1)).toIso8601String().substring(0, 10);
-    return d.query('step_days', where: 'date>=?', whereArgs: [since], orderBy: 'date ASC');
+    return d.query('step_days', where: 'date >= ?', whereArgs: [since], orderBy: 'date ASC');
   }
+
   Future<Map<String, dynamic>?> getStepsByDate(String date) async {
     final d = await db;
-
-    final rows = await d.query(
-      'step_days',
-      where: 'date = ?',
-      whereArgs: [date],
-      limit: 1,
-    );
-
+    final rows = await d.query('step_days', where: 'date = ?', whereArgs: [date], limit: 1);
     return rows.isNotEmpty ? rows.first : null;
   }
 
   Future<List<Map<String, dynamic>>> getUnsyncedSteps() async {
     final d = await db;
-    return d.query('step_days', where: 'synced=0');
+    return d.query('step_days', where: 'synced = 0');
   }
 
   Future<void> markStepSynced(String date) async {
     final d = await db;
-    await d.update('step_days', {'synced': 1}, where: 'date=?', whereArgs: [date]);
+    await d.update('step_days', {'synced': 1}, where: 'date = ?', whereArgs: [date]);
   }
-
-  // ════════════════════════════════════════════════════════════════
-  // SYNC QUEUE
-  // ════════════════════════════════════════════════════════════════
 
   Future<void> enqueue(String method, String endpoint, {String? body}) async {
     final d = await db;
     await d.insert('sync_queue', {
-      'method': method, 'endpoint': endpoint,
-      'body': body, 'created_at': DateTime.now().toIso8601String(), 'retries': 0,
+      'method': method,
+      'endpoint': endpoint,
+      'body': body,
+      'created_at': DateTime.now().toIso8601String(),
+      'retries': 0,
     });
   }
 
@@ -340,17 +379,13 @@ class LocalDb {
 
   Future<void> removeFromQueue(int id) async {
     final d = await db;
-    await d.delete('sync_queue', where: 'id=?', whereArgs: [id]);
+    await d.delete('sync_queue', where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> incrementRetry(int id) async {
     final d = await db;
     await d.rawUpdate('UPDATE sync_queue SET retries = retries + 1 WHERE id = ?', [id]);
   }
-
-  // ════════════════════════════════════════════════════════════════
-  // REMINDERS (local cache)
-  // ════════════════════════════════════════════════════════════════
 
   Future<void> saveReminders(List<Map<String, dynamic>> reminders) async {
     final d = await db;
@@ -363,37 +398,36 @@ class LocalDb {
 
   Future<List<Map<String, dynamic>>> getCachedReminders() async {
     final d = await db;
-    return d.query('reminders', where: 'is_active=1', orderBy: 'remind_time ASC');
+    return d.query('reminders', where: 'is_active = 1', orderBy: 'remind_time ASC');
   }
 
   Future<void> markReminderDoneLocal(int id) async {
     final d = await db;
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    await d.update('reminders', {'is_done_today': 1, 'last_done_date': today}, where: 'id=?', whereArgs: [id]);
+    await d.update('reminders', {'is_done_today': 1, 'last_done_date': today}, where: 'id = ?', whereArgs: [id]);
   }
 
-  /// Reset done status at midnight
   Future<void> resetDailyReminders() async {
     final d = await db;
     final today = DateTime.now().toIso8601String().substring(0, 10);
     await d.rawUpdate(
-        'UPDATE reminders SET is_done_today=0 WHERE last_done_date != ? OR last_done_date IS NULL', [today]);
+      'UPDATE reminders SET is_done_today = 0 WHERE last_done_date != ? OR last_done_date IS NULL',
+      [today],
+    );
   }
-
-  // ════════════════════════════════════════════════════════════════
-  // APP CACHE (dashboard, recipes etc.)
-  // ════════════════════════════════════════════════════════════════
 
   Future<void> setCache(String key, String value) async {
     final d = await db;
-    await d.insert('app_cache', {
-      'key': key, 'value': value, 'cached_at': DateTime.now().toIso8601String(),
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await d.insert(
+      'app_cache',
+      {'key': key, 'value': value, 'cached_at': DateTime.now().toIso8601String()},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<String?> getCache(String key, {int maxAgeMinutes = 60}) async {
     final d = await db;
-    final rows = await d.query('app_cache', where: 'key=?', whereArgs: [key]);
+    final rows = await d.query('app_cache', where: 'key = ?', whereArgs: [key]);
     if (rows.isEmpty) return null;
     final cached = DateTime.parse(rows.first['cached_at'] as String);
     if (DateTime.now().difference(cached).inMinutes > maxAgeMinutes) return null;
@@ -405,9 +439,6 @@ class LocalDb {
     await d.delete('app_cache');
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // MEDICINES (Module 4)
-  // ════════════════════════════════════════════════════════════════
   Future<int> saveMedicine(Map<String, dynamic> med) async {
     final d = await db;
     return d.insert('medicines', med, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -415,54 +446,60 @@ class LocalDb {
 
   Future<List<Map<String, dynamic>>> getMedicines({int? memberId}) async {
     final d = await db;
-    if (memberId != null) return d.query('medicines', where: 'member_id=? AND active=1', whereArgs: [memberId]);
-    return d.query('medicines', where: 'active=1');
+    if (memberId != null) {
+      return d.query('medicines', where: 'member_id = ? AND active = 1', whereArgs: [memberId]);
+    }
+    return d.query('medicines', where: 'active = 1');
   }
 
   Future<void> deleteMedicineLocal(int id) async {
     final d = await db;
-    await d.update('medicines', {'active': 0}, where: 'id=?', whereArgs: [id]);
+    await d.update('medicines', {'active': 0}, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> updateMedicineStock(int id, int newStock) async {
     final d = await db;
-    await d.update('medicines', {'stock_count': newStock}, where: 'id=?', whereArgs: [id]);
+    await d.update('medicines', {'stock_count': newStock}, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> logMedicineTaken(int medicineId, bool taken) async {
     final d = await db;
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    await d.insert('medicine_logs', {
-      'medicine_id': medicineId, 'log_date': today, 'taken': taken ? 1 : 0,
-      'logged_at': DateTime.now().toIso8601String(), 'synced': 0,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await d.insert(
+      'medicine_logs',
+      {
+        'medicine_id': medicineId,
+        'log_date': today,
+        'taken': taken ? 1 : 0,
+        'logged_at': DateTime.now().toIso8601String(),
+        'synced': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<Map<String, dynamic>?> getTodayMedicineLog(int medicineId) async {
     final d = await db;
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    final rows = await d.query('medicine_logs', where: 'medicine_id=? AND log_date=?', whereArgs: [medicineId, today]);
+    final rows = await d.query('medicine_logs', where: 'medicine_id = ? AND log_date = ?', whereArgs: [medicineId, today]);
     return rows.isNotEmpty ? rows.first : null;
   }
 
   Future<double> getMedicineAdherence(int medicineId, {int days = 30}) async {
     final d = await db;
     final since = DateTime.now().subtract(Duration(days: days)).toIso8601String().substring(0, 10);
-    final rows = await d.query('medicine_logs', where: 'medicine_id=? AND log_date>=?', whereArgs: [medicineId, since]);
+    final rows = await d.query('medicine_logs', where: 'medicine_id = ? AND log_date >= ?', whereArgs: [medicineId, since]);
     if (rows.isEmpty) return 0;
-    final taken = rows.where((r) => r['taken'] == 1).length;
-    return (taken / rows.length) * 100;
+    final taken = rows.where((r) => (r['taken'] as int? ?? 0) == 1).length;
+    return taken / rows.length * 100;
   }
 
   Future<List<Map<String, dynamic>>> getMedicineLogsForMonth(int medicineId, int year, int month) async {
     final d = await db;
     final prefix = '$year-${month.toString().padLeft(2, '0')}';
-    return d.query('medicine_logs', where: "medicine_id=? AND log_date LIKE ?", whereArgs: [medicineId, '$prefix%']);
+    return d.query('medicine_logs', where: 'medicine_id = ? AND log_date LIKE ?', whereArgs: [medicineId, '$prefix%']);
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // LAB TESTS (Module 8)
-  // ════════════════════════════════════════════════════════════════
   Future<int> saveLabTest(Map<String, dynamic> test) async {
     final d = await db;
     return d.insert('lab_tests', test);
@@ -471,22 +508,19 @@ class LocalDb {
   Future<List<Map<String, dynamic>>> getLabTests(String testType, {int? memberId}) async {
     final d = await db;
     if (memberId != null) {
-      return d.query('lab_tests', where: 'test_type=? AND member_id=?', whereArgs: [testType, memberId], orderBy: 'test_date DESC');
+      return d.query('lab_tests', where: 'test_type = ? AND member_id = ?', whereArgs: [testType, memberId], orderBy: 'test_date DESC');
     }
-    return d.query('lab_tests', where: 'test_type=?', whereArgs: [testType], orderBy: 'test_date DESC');
+    return d.query('lab_tests', where: 'test_type = ?', whereArgs: [testType], orderBy: 'test_date DESC');
   }
 
   Future<List<String>> getDistinctLabTestTypes({int? memberId}) async {
     final d = await db;
     final rows = memberId != null
-        ? await d.query('lab_tests', columns: ['DISTINCT test_type'], where: 'member_id=?', whereArgs: [memberId])
+        ? await d.query('lab_tests', columns: ['DISTINCT test_type'], where: 'member_id = ?', whereArgs: [memberId])
         : await d.query('lab_tests', columns: ['DISTINCT test_type']);
     return rows.map((r) => r['test_type'] as String).toList();
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // DOCTOR VISITS (Module 9)
-  // ════════════════════════════════════════════════════════════════
   Future<int> saveDoctorVisit(Map<String, dynamic> visit) async {
     final d = await db;
     return d.insert('doctor_visits', visit);
@@ -494,13 +528,12 @@ class LocalDb {
 
   Future<List<Map<String, dynamic>>> getDoctorVisits({int? memberId}) async {
     final d = await db;
-    if (memberId != null) return d.query('doctor_visits', where: 'member_id=?', whereArgs: [memberId], orderBy: 'visit_date DESC');
+    if (memberId != null) {
+      return d.query('doctor_visits', where: 'member_id = ?', whereArgs: [memberId], orderBy: 'visit_date DESC');
+    }
     return d.query('doctor_visits', orderBy: 'visit_date DESC');
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // APPOINTMENTS (Module 10)
-  // ════════════════════════════════════════════════════════════════
   Future<int> saveAppointment(Map<String, dynamic> appt) async {
     final d = await db;
     return d.insert('appointments', appt, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -510,30 +543,34 @@ class LocalDb {
     final d = await db;
     final today = DateTime.now().toIso8601String().substring(0, 10);
     if (memberId != null) {
-      return d.query('appointments', where: 'appointment_date>=? AND completed=0 AND member_id=?', whereArgs: [today, memberId], orderBy: 'appointment_date ASC');
+      return d.query(
+        'appointments',
+        where: 'appointment_date >= ? AND completed = 0 AND member_id = ?',
+        whereArgs: [today, memberId],
+        orderBy: 'appointment_date ASC',
+      );
     }
-    return d.query('appointments', where: 'appointment_date>=? AND completed=0', whereArgs: [today], orderBy: 'appointment_date ASC');
+    return d.query('appointments', where: 'appointment_date >= ? AND completed = 0', whereArgs: [today], orderBy: 'appointment_date ASC');
   }
 
   Future<List<Map<String, dynamic>>> getAllAppointments({int? memberId}) async {
     final d = await db;
-    if (memberId != null) return d.query('appointments', where: 'member_id=?', whereArgs: [memberId], orderBy: 'appointment_date DESC');
+    if (memberId != null) {
+      return d.query('appointments', where: 'member_id = ?', whereArgs: [memberId], orderBy: 'appointment_date DESC');
+    }
     return d.query('appointments', orderBy: 'appointment_date DESC');
   }
 
   Future<void> markAppointmentComplete(int id) async {
     final d = await db;
-    await d.update('appointments', {'completed': 1}, where: 'id=?', whereArgs: [id]);
+    await d.update('appointments', {'completed': 1}, where: 'id = ?', whereArgs: [id]);
   }
 
   Future<void> deleteAppointmentLocal(int id) async {
     final d = await db;
-    await d.delete('appointments', where: 'id=?', whereArgs: [id]);
+    await d.delete('appointments', where: 'id = ?', whereArgs: [id]);
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // FAMILY MEMBERS CACHE (Module 16)
-  // ════════════════════════════════════════════════════════════════
   Future<void> cacheFamilyMember(Map<String, dynamic> member) async {
     final d = await db;
     await d.insert('family_members_cache', member, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -549,9 +586,6 @@ class LocalDb {
     await d.delete('family_members_cache');
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // HABITS (Module 3 — habit tracking)
-  // ════════════════════════════════════════════════════════════════
   Future<int> saveHabit(Map<String, dynamic> habit) async {
     final d = await db;
     return d.insert('habits', habit);
@@ -559,74 +593,100 @@ class LocalDb {
 
   Future<List<Map<String, dynamic>>> getHabits({int? memberId}) async {
     final d = await db;
-    if (memberId != null) return d.query('habits', where: 'member_id=?', whereArgs: [memberId]);
+    if (memberId != null) {
+      return d.query('habits', where: 'member_id = ?', whereArgs: [memberId]);
+    }
     return d.query('habits');
   }
 
   Future<void> logHabit(int habitId, bool completed, {double? actualValue}) async {
     final d = await db;
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    await d.insert('habit_logs', {
-      'habit_id': habitId, 'log_date': today, 'completed': completed ? 1 : 0,
-      'actual_value': actualValue, 'synced': 0,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await d.insert(
+      'habit_logs',
+      {
+        'habit_id': habitId,
+        'log_date': today,
+        'completed': completed ? 1 : 0,
+        'actual_value': actualValue,
+        'synced': 0,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<bool> isHabitDoneToday(int habitId) async {
     final d = await db;
     final today = DateTime.now().toIso8601String().substring(0, 10);
-    final rows = await d.query('habit_logs', where: 'habit_id=? AND log_date=? AND completed=1', whereArgs: [habitId, today]);
+    final rows = await d.query('habit_logs', where: 'habit_id = ? AND log_date = ? AND completed = 1', whereArgs: [habitId, today]);
     return rows.isNotEmpty;
   }
 
   Future<int> getHabitStreak(int habitId) async {
     final d = await db;
-    final rows = await d.query('habit_logs', where: 'habit_id=? AND completed=1', whereArgs: [habitId], orderBy: 'log_date DESC');
+    final rows = await d.query('habit_logs', where: 'habit_id = ? AND completed = 1', whereArgs: [habitId], orderBy: 'log_date DESC');
     if (rows.isEmpty) return 0;
     int streak = 0;
     DateTime checkDate = DateTime.now();
     for (final r in rows) {
       final logDate = DateTime.parse(r['log_date'] as String);
       final diff = checkDate.difference(logDate).inDays;
-      if (diff <= 1) { streak++; checkDate = logDate; } else { break; }
+      if (diff <= 1) {
+        streak++;
+        checkDate = logDate;
+      } else {
+        break;
+      }
     }
     return streak;
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // EMERGENCY CARD (Module 14)
-  // ════════════════════════════════════════════════════════════════
   Future<void> saveEmergencyCard(int memberId, Map<String, dynamic> data) async {
     final d = await db;
-    await d.insert('emergency_card', {'member_id': memberId, ...data}, conflictAlgorithm: ConflictAlgorithm.replace);
+    await d.insert(
+      'emergency_card',
+      {'member_id': memberId, ...data},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
   Future<Map<String, dynamic>?> getEmergencyCard(int memberId) async {
     final d = await db;
-    final rows = await d.query('emergency_card', where: 'member_id=?', whereArgs: [memberId]);
+    final rows = await d.query('emergency_card', where: 'member_id = ?', whereArgs: [memberId]);
     return rows.isNotEmpty ? rows.first : null;
   }
 
-  // ════════════════════════════════════════════════════════════════
-  // HEALTH TIMELINE (Module 20)
-  // ════════════════════════════════════════════════════════════════
   Future<void> addTimelineEvent({
-    required String eventType, required String eventDate, required String title,
-    String? description, String? icon, int? memberId,
+    required String eventType,
+    required String eventDate,
+    required String title,
+    String? description,
+    String? icon,
+    int? memberId,
   }) async {
     final d = await db;
     await d.insert('health_timeline', {
-      'event_type': eventType, 'event_date': eventDate, 'title': title,
-      'description': description, 'icon': icon, 'member_id': memberId,
+      'event_type': eventType,
+      'event_date': eventDate,
+      'title': title,
+      'description': description,
+      'icon': icon,
+      'member_id': memberId,
     });
   }
 
   Future<List<Map<String, dynamic>>> getTimeline({int? memberId, String? category, int limit = 100}) async {
     final d = await db;
     String where = '1=1';
-    List<dynamic> args = [];
-    if (memberId != null) { where += ' AND member_id=?'; args.add(memberId); }
-    if (category != null) { where += ' AND event_type=?'; args.add(category); }
+    final args = <Object?>[];
+    if (memberId != null) {
+      where += ' AND member_id = ?';
+      args.add(memberId);
+    }
+    if (category != null) {
+      where += ' AND event_type = ?';
+      args.add(category);
+    }
     return d.query('health_timeline', where: where, whereArgs: args, orderBy: 'event_date DESC', limit: limit);
   }
 }

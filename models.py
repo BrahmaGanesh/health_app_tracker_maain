@@ -1813,6 +1813,39 @@ class Alert(db.Model):
         }
 
 
+class UserSettings(db.Model):
+    __tablename__ = "usersettings"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
+
+    # Medicine settings
+    med_notifications = db.Column(db.Boolean, default=True)
+    med_auto_stock = db.Column(db.Boolean, default=True)
+    med_snooze_mins = db.Column(db.Integer, default=10)
+    med_low_stock_threshold = db.Column(db.Integer, default=5)
+    med_sound = db.Column(db.String(50), default="medicine")
+
+    # Water settings
+    water_reminders = db.Column(db.Boolean, default=True)
+    water_target_litres = db.Column(db.Float, default=2.5)
+
+    # Sleep settings
+    sleep_reminders = db.Column(db.Boolean, default=True)
+    sleep_target_hours = db.Column(db.Float, default=7.5)
+
+    # Exercise settings
+    exercise_reminders = db.Column(db.Boolean, default=True)
+    exercise_target_mins = db.Column(db.Integer, default=30)
+
+    # General notification settings
+    notification_sound = db.Column(db.String(50), default="healthalert")
+    vibration_enabled = db.Column(db.Boolean, default=True)
+
+    created_at = db.Column(db.DateTime, default=now_ist)
+    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
+
+
 # ============================================================
 # SEED DATA
 # ============================================================

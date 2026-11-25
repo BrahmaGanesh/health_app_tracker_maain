@@ -357,8 +357,8 @@ class ApiService {
   // ═══════════════════════════════════════════════════════════
   // LAB TESTS (Module 8)
   // ═══════════════════════════════════════════════════════════
-  Future<ApiResponse> getLabTests(String testType, {int? memberId}) =>
-      get('/lab-tests/', query: {'test_type': testType, if (memberId != null) 'member_id': memberId});
+  Future<ApiResponse> getLabTests(String testCategory, {int? memberId}) =>
+      get('/lab-tests/', query: {'test_category': testCategory, if (memberId != null) 'member_id': memberId});
 
   Future<ApiResponse> addLabTest(Map<String, dynamic> data) => post('/lab-tests/', data: data);
 

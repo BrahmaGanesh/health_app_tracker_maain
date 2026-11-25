@@ -1,0 +1,121 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // ============================================================
+    // USER DOCUMENTS - Private medical documents
+    // Path: users/{userId}/documents/{documentId}/{fileName}
+    // ============================================================
+    match /users/{userId}/documents/{documentId}/{fileName} {
+      // Owner can read/write
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      // Family members with permission can read (requires explicit permission in Firestore)
+      allow read: if request.auth != null &&
+        request.auth.uid != userId &&
+        exists(/databases/$(database)/documents/users/$(userId)/family_members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(userId)/family_members/$(request.auth.uid)).data.permissions == true;
+    }
+
+    // ============================================================
+    // USER PROFILE PHOTOS
+    // Path: users/{userId}/profile/{fileName}
+    // ============================================================
+    match /users/{userId}/profile/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ============================================================
+    // MEDICINE PHOTOS (for AI verification)
+    // Path: users/{userId}/medicines/{medicineId}/{fileName}
+    // ============================================================
+    match /users/{userId}/medicines/{medicineId}/{fileName} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ============================================================
+    // LAB TEST REPORTS
+    // Path: users/{userId}/lab_reports/{testId}/{fileName}
+    // ============================================================
+    match /users/{userId}/lab_reports/{testId}/{fileName} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      allow read: if request.auth != null &&
+        request.auth.uid != userId &&
+        exists(/databases/$(database)/documents/users/$(userId)/family_members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(userId)/family_members/$(request.auth.uid)).data.permissions == true;
+    }
+
+    // ============================================================
+    // EMERGENCY CARD QR CODE IMAGES
+    // Path: emergency_cards/{userId}/{fileName}
+    // ============================================================
+    match /emergency_cards/{userId}/{fileName} {
+      // Allow public read for emergency QR codes
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ============================================================
+    // AI CAMERA TEMP UPLOADS
+    // Path: ai_camera/{userId}/{timestamp}/{fileName}
+    // Auto-cleanup after 24 hours
+    // ============================================================
+    match /ai_camera/{userId}/{timestamp}/{fileName} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ============================================================
+    // APP ASSETS (icons, splash screens, etc.)
+    // Path: assets/{fileName}
+    // ============================================================
+    match /assets/{fileName} {
+      allow read: if true;  // Public read for app assets
+      allow write: if request.auth != null && isAdmin(request.auth.uid);
+    }
+
+    // ============================================================
+    // BACKUP FILES
+    // Path: backups/{userId}/{backupId}/{fileName}
+    // ============================================================
+    match /backups/{userId}/{backupId}/{fileName} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // ============================================================
+    // HELPER FUNCTIONS
+    // ============================================================
+    function isAdmin(userId) {
+      return get(/databases/$(database)/documents/users/$(userId)).data.is_admin == true;
+    }
+
+    function isFamilyMemberWithPermission(ownerId, permissionType) {
+      let memberRef = get(/databases/$(database)/documents/users/$(ownerId)/family_members/$(request.auth.uid));
+      return memberRef.exists &&
+             memberRef.data.permissions != null &&
+             memberRef.data.permissions[permissionType] == true;
+    }
+
+    // File size limits
+    function isValidImageSize() {
+      return request.resource.size <= 10 * 1024 * 1024; // 10MB
+    }
+
+    function isValidDocumentSize() {
+      return request.resource.size <= 25 * 1024 * 1024; // 25MB
+    }
+
+    // Content type validation
+    function isValidImageType() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+    }
+
+    function isValidPdfType() {
+      return request.resource.contentType == 'application/pdf';
+    }
+
+    function isValidDocumentType() {
+      return isValidImageType() || isValidPdfType();
+    }
+  }
+}

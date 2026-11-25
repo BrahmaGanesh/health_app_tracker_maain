@@ -1,4 +1,4 @@
-// lib/main.dart — HealthTrack v2.0 — Complete with Security + All Routes
+// lib/main.dart — HealthTrack v2.0 — Complete with Security + All Routes + Firebase
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -10,6 +10,7 @@ import 'services/step_tracking_service.dart';
 import 'services/sync_service.dart';
 import 'services/local_db_service.dart';
 import 'services/security_service.dart';
+import 'services/firebase_service.dart';
 
 // ── Screens ───────────────────────────────────────────────────────
 import 'screens/splash_screen.dart';
@@ -91,20 +92,19 @@ class ThemeService extends ChangeNotifier {
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 1. Open local SQLite DB (creates tables on first run)
+  // 1. Initialize Firebase
+  await Firebase.initializeApp();
+
+  // 2. Open local SQLite DB (creates tables on first run)
   await LocalDb().db;
 
-  // 2. Load security settings (biometric/PIN state)
+  // 3. Load security settings (biometric/PIN state)
   await SecurityService().init();
 
-  // 3. Firebase — for FCM push notifications
-  try {
-    await Firebase.initializeApp();
-  } catch (e) {
-    debugPrint('[Firebase] init skipped: $e');
-  }
+  // 4. Initialize Firebase Service (Firestore, Auth, FCM)
+  await FirebaseService().initialize();
 
-  // 4. Background sync service (auto-syncs when internet returns)
+  // 5. Background sync service (auto-syncs when internet returns)
   await SyncService().init();
 
   runApp(const HealthTrackApp());

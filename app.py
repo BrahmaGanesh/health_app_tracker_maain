@@ -61,11 +61,26 @@ def create_app(config_class=None):
     mail.init_app(app)
     cache.init_app(app)
 
+    # Get allowed origins from environment (comma-separated)
+    # Default to localhost for development, restrict for production
+    allowed_origins_str = os.environ.get("CORS_ORIGINS", "")
+    if allowed_origins_str:
+        allowed_origins = [o.strip() for o in allowed_origins_str.split(",") if o.strip()]
+    else:
+        # Development defaults - restrict these in production
+        allowed_origins = [
+            "http://localhost:3000",
+            "http://localhost:5000",
+            "https://localhost:3000",
+            "https://*.netlify.app",
+            "https://*.vercel.app"
+        ]
+
     cors.init_app(
         app,
         resources={
             r"/api/*": {
-                "origins": "*",
+                "origins": allowed_origins,
                 "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                 "allow_headers": ["Content-Type", "Authorization", "X-CSRFToken"],
             }
