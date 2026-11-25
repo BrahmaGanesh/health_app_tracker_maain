@@ -263,21 +263,16 @@ class AppTheme {
 }
 
 class AppConfig {
-  static const bool isProd = false; // Set to false for development, true for production
+  static const bool isProd = true; // Set to true for production deployment
 
-  // Firebase Functions URLs (Netlify Functions for website, Firebase Functions for mobile)
-  static const String devBaseUrl = "http://192.168.0.110:5000"; // Keep for local Flask dev
-  static const String prodBaseUrl = "https://health-app-tracker-maa.onrender.com"; // Keep for backwards compat
-
-  // Firebase Functions URLs
-  static const String firebaseFunctionsBaseUrl = "https://us-central1-healthtrack-2-0.cloudfunctions.net";
-  static const String netlifyFunctionsBaseUrl = "https://your-site.netlify.app/.netlify/functions";
+  // API URLs
+  static const String devBaseUrl = "http://192.168.0.110:5000"; // Local Flask dev
+  static const String prodBaseUrl = "https://health-app-tracker-maa.onrender.com"; // Production Flask on Render
 
   static String get baseUrl => isProd ? prodBaseUrl : devBaseUrl;
 
-  // For Flutter app, use Netlify Functions or Firebase Functions
   static String get apiV1 => isProd
-      ? "$netlifyFunctionsBaseUrl/api/v1"
+      ? "$prodBaseUrl/api/v1"
       : "$devBaseUrl/api/v1";
 
   // Firebase config (set via flutterfire configure)

@@ -6,6 +6,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../constants/app_theme.dart';
 
 class ApiResponse {
@@ -35,9 +36,12 @@ class ApiService {
   ApiService._();
 
   // ── Token helpers ─────────────────────────────────────────────
-  Future<String?> _getToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('access_token');
+  Future<String?> _getIdToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      return await user.getIdToken(true); // force refresh
+    }
+    return null;
   }
 
   Future<void> saveTokens(String access, String refresh) async {
@@ -82,34 +86,24 @@ class ApiService {
   // ── Auto-refresh on 401 ───────────────────────────────────────
   Future<bool> _refresh() async {
     try {
-      final prefs  = await SharedPreferences.getInstance();
-      final rToken = prefs.getString('refresh_token');
-      if (rToken == null) return false;
-      final resp = await http.post(
-        _uri('/auth/refresh'),
-        headers: {'Content-Type': 'application/json', 'Authorization': 'Bearer $rToken'},
-      );
-      if (resp.statusCode == 200) {
-        final json = jsonDecode(resp.body);
-        if (json['success'] == true) {
-          await prefs.setString('access_token', json['data']['access_token']);
-          return true;
-        }
-      }
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return false;
+      String? newToken = await user.getIdToken(true);
+      return newToken != null;
     } catch (_) {}
     return false;
   }
 
   Future<ApiResponse> _request(Future<http.Response> Function(String? token) call) async {
     try {
-      String? token = await _getToken();
+      String? token = await _getIdToken();
       http.Response resp = await call(token);
 
       // Auto-refresh on 401
       if (resp.statusCode == 401) {
         final ok = await _refresh();
         if (ok) {
-          token = await _getToken();
+          token = await _getIdToken();
           resp = await call(token);
         }
       }
@@ -235,7 +229,7 @@ class ApiService {
 
   Future<ApiResponse> toggleGroceryItem(int id) => post('/meals/grocery/$id/toggle');
 
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════════
   // EXERCISE
   // ═══════════════════════════════════════════════════════════
   Future<ApiResponse> logExercise({required String exerciseName, String exerciseType = 'cardio',
@@ -296,7 +290,7 @@ class ApiService {
 
   // ═══════════════════════════════════════════════════════════
   // FAMILY
-  // ═══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
   Future<ApiResponse> getFamilyMembers() => get('/family/members');
 
   Future<ApiResponse> getFamilyMember(int id) => get('/family/members/$id');
@@ -322,7 +316,7 @@ class ApiService {
 
   // ═══════════════════════════════════════════════════════════
   // REPORTS
-  // ═══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
   Future<ApiResponse> getEmailConfig() => get('/reports/email-config');
 
   Future<ApiResponse> saveEmailConfig(Map<String, dynamic> data) =>
@@ -333,9 +327,9 @@ class ApiService {
 
   Future<ApiResponse> getReportHistory() => get('/reports/history');
 
-  // ═══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
   // MEDICINES (Module 4)
-  // ═══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
   Future<ApiResponse> getMedicines({int? memberId}) =>
       get('/medicines/', query: memberId != null ? {'member_id': memberId} : null);
 
@@ -354,9 +348,9 @@ class ApiService {
   Future<ApiResponse> updateMedicineStock(int id, int count) =>
       post('/medicines/$id/stock', data: {'stock_count': count});
 
-  // ═══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
   // LAB TESTS (Module 8)
-  // ═══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
   Future<ApiResponse> getLabTests(String testCategory, {int? memberId}) =>
       get('/lab-tests/', query: {'test_category': testCategory, if (memberId != null) 'member_id': memberId});
 
@@ -366,9 +360,9 @@ class ApiService {
 
   Future<ApiResponse> getLabTestTypes() => get('/lab-tests/types');
 
-  // ═══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
   // DOCTOR VISITS (Module 9)
-  // ═══════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════
   Future<ApiResponse> getDoctorVisits({int? memberId}) =>
       get('/doctor-visits/', query: memberId != null ? {'member_id': memberId} : null);
 
@@ -376,12 +370,9 @@ class ApiService {
 
   Future<ApiResponse> deleteDoctorVisit(int id) => delete('/doctor-visits/$id');
 
-  // ═══════════════════════════════════════════════════════════
+  // ══════════════════════════════════════════════════════════
   // APPOINTMENTS (Module 10)
-  // ═══════════════════════════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  // APPOINTMENTS (Module 10 — Complete)
-  // ═══════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════
   Future<ApiResponse> getAppointmentDashboard({int? memberId}) =>
       get('/appointments/dashboard', query: memberId != null ? {'member_id': memberId} : null);
 
@@ -410,9 +401,9 @@ class ApiService {
 
   Future<ApiResponse> saveAppointmentSettings(Map<String, dynamic> data) => post('/appointments/settings', data: data);
 
-  // ═══════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════
   // DOCUMENTS (Module 11)
-  // ═══════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════
   Future<ApiResponse> getDocuments({String? docType, int? memberId}) =>
       get('/documents/list', query: {if (docType != null) 'type': docType, if (memberId != null) 'member_id': memberId});
 
@@ -420,27 +411,27 @@ class ApiService {
 
   Future<ApiResponse> toggleDocumentImportant(int id) => post('/documents/$id/toggle-important');
 
-  // ═══════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════
   // HEALTH SCORE (Module 13)
-  // ═══════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════
   Future<ApiResponse> getHealthScore({String? date}) =>
       get('/health-score/', query: date != null ? {'date': date} : null);
 
   Future<ApiResponse> getHealthScoreHistory({int days = 30}) =>
       get('/health-score/history', query: {'days': days});
 
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   // EMERGENCY CARD (Module 14)
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   Future<ApiResponse> getEmergencyCard({int? memberId}) =>
       get('/emergency-card/', query: memberId != null ? {'member_id': memberId} : null);
 
   Future<ApiResponse> updateEmergencyCard(Map<String, dynamic> data) =>
       post('/emergency-card/', data: data);
 
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   // HABITS (Module 3)
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   Future<ApiResponse> getHabits({int? memberId}) =>
       get('/habits/', query: memberId != null ? {'member_id': memberId} : null);
 
@@ -451,12 +442,9 @@ class ApiService {
 
   Future<ApiResponse> deleteHabit(int id) => delete('/habits/$id');
 
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   // HEALTH TIMELINE (Module 20)
-  // ═══════════════════════════════════════════════════════════
-  // ═══════════════════════════════════════════════════════════
-  // HEALTH TIMELINE (Module 20 — Complete)
-  // ═══════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════
   Future<ApiResponse> getTimelineSummary({int? memberId}) =>
       get('/timeline/summary', query: memberId != null ? {'member_id': memberId} : null);
 
@@ -480,24 +468,24 @@ class ApiService {
   Future<ApiResponse> deleteTimelineEvent(int id) =>
       delete('/timeline/$id');
 
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   // AI ASSISTANT (Module 19)
-  // ═══════════════════════════════════════════════════════════
+  // ═════════════════════════════════════════════════════════
   Future<ApiResponse> sendAiMessage(String message, {List<Map<String, String>>? history}) =>
       post('/ai-assistant/chat', data: {'message': message, 'history': history ?? []});
 
-  // ═══════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════
   // AI CAMERA (Module 6)
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   Future<ApiResponse> analyzeFoodPhoto(String base64Image) =>
       post('/ai-camera/food', data: {'image': base64Image});
 
   Future<ApiResponse> analyzeMedicinePhoto(String base64Image) =>
       post('/ai-camera/medicine', data: {'image': base64Image});
 
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   // SUBSCRIPTION (Premium / Family plans)
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   Future<ApiResponse> getSubscriptionStatus() => get('/subscription/status');
 
   Future<ApiResponse> verifyPurchase(String purchaseToken, String productId) =>
@@ -505,13 +493,12 @@ class ApiService {
 
   Future<ApiResponse> cancelSubscription() => post('/subscription/cancel');
 
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   // EMERGENCY ALERTS (Module 15)
-  // ═══════════════════════════════════════════════════════════
+  // ════════════════════════════════════════════════════════
   Future<ApiResponse> getTrustedContacts() => get('/emergency-alerts/contacts');
 
   Future<ApiResponse> addTrustedContact(Map<String, dynamic> data) =>
       post('/emergency-alerts/contacts', data: data);
 
   Future<ApiResponse> deleteTrustedContact(int id) => delete('/emergency-alerts/contacts/$id');
-}

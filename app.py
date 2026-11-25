@@ -1,18 +1,19 @@
 # ============================================================
 # HEALTH TRACKER PLATFORM — FINAL COMPLETE MERGED VERSION
 # app.py — Flask Application Factory (Website + API for APK)
+# Migrated to Firebase Cloud Firestore + Firebase Auth
 # ============================================================
 from dotenv import load_dotenv
 import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, g
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import get_config
 from extensions import (
-    db, bcrypt, login_manager, migrate, mail,
+    bcrypt, login_manager, migrate, mail,
     cache, cors, jwt, csrf
 )
 
@@ -54,10 +55,9 @@ def create_app(config_class=None):
     # --------------------------------------------------------
     # INIT EXTENSIONS
     # --------------------------------------------------------
-    db.init_app(app)
     bcrypt.init_app(app)
     login_manager.init_app(app)
-    migrate.init_app(app, db)
+    # migrate.init_app(app, db)  # SQLAlchemy removed - using Firestore
     mail.init_app(app)
     cache.init_app(app)
 
@@ -91,17 +91,33 @@ def create_app(config_class=None):
     csrf.init_app(app)
 
     # --------------------------------------------------------
-    # LOGIN MANAGER
+    # FIREBASE ADMIN INITIALIZATION
     # --------------------------------------------------------
-    login_manager.login_view = "auth.login"
-    login_manager.login_message = "Please log in to access this page."
-    login_manager.login_message_category = "info"
-    login_manager.session_protection = "strong"
+    def initialize_firebase():
+        """Initialize Firebase Admin SDK."""
+        try:
+            from services.firebase_admin import init_firebase_admin
+            credentials_base64 = app.config.get("FIREBASE_CREDENTIALS_BASE64", "")
+            project_id = app.config.get("FIREBASE_PROJECT_ID", "health-tracker-2-0")
 
-    @login_manager.user_loader
-    def load_user(user_id):
-        from models import User
-        return db.session.get(User, int(user_id))
+            if not app.config.get("FIREBASE_CREDENTIALS_BASE64") and not os.path.exists("firebase-credentials.json"):
+                app.logger.warning("Firebase credentials not configured. Firebase features will be disabled.")
+                return False
+
+            service = init_firebase_admin(
+                credentials_base64=app.config.get("FIREBASE_CREDENTIALS_BASE64", "") or None,
+                project_id=app.config.get("FIREBASE_PROJECT_ID", "health-tracker-2-0")
+            )
+            app.logger.info("✓ Firebase Admin SDK initialized successfully")
+            return True
+        except Exception as e:
+            app.logger.error(f"Firebase initialization failed: {e}")
+            return False
+
+    # Initialize Firebase on app creation
+    with app.app_context():
+        firebase_initialized = initialize_firebase()
+        app.config['FIREBASE_INITIALIZED'] = firebase_initialized
 
     # --------------------------------------------------------
     # JWT CONFIG
@@ -112,9 +128,99 @@ def create_app(config_class=None):
 
     @jwt.user_lookup_loader
     def lookup(_jwt_header, jwt_data):
-        from models import User
+        # For JWT tokens, we use Firebase UID
         identity = jwt_data["sub"]
-        return User.query.get(int(identity))
+        return {"uid": identity}
+
+    @jwt.unauthorized_loader
+    def unauthorized(reason):
+        return jsonify({
+            "error": "Authorization required",
+            "reason": reason
+        }), 401
+
+    @jwt.expired_token_loader
+    def expired_token(_header, _payload):
+        return jsonify({
+            "error": "Token expired",
+            "code": "TOKEN_EXPIRED"
+        }), 401
+
+    # --------------------------------------------------------
+    # CSRF FOR API
+    # --------------------------------------------------------
+    @app.before_request
+    def disable_csrf_for_api():
+        if request.path.startswith("/api/v1/"):
+            setattr(request, "_dont_enforce_csrf_checks", True)
+
+    # --------------------------------------------------------
+    # FIREBASE AUTH MIDDLEWARE
+    # --------------------------------------------------------
+    @app.before_request
+    def verify_firebase_token():
+        """Verify Firebase ID token for API routes."""
+        if request.path.startswith("/api/v1/"):
+            auth_header = request.headers.get('Authorization', '')
+
+            if auth_header.startswith('Bearer '):
+                id_token = auth_header.split('Bearer ')[1].strip()
+
+                try:
+                    from services.firebase_admin import get_firebase_admin
+                    firebase_admin = get_firebase_admin()
+
+                    # Verify Firebase ID token
+                    decoded_token = firebase_admin.verify_id_token(id_token)
+
+                    # Store user info in Flask g object
+                    g.current_user = {
+                        'uid': decoded_token['uid'],
+                        'email': decoded_token.get('email'),
+                        'email_verified': decoded_token.get('email_verified', False),
+                        'name': decoded_token.get('name'),
+                        'picture': decoded_token.get('picture'),
+                        'auth_time': decoded_token.get('auth_time'),
+                        'token_claims': decoded_token
+                    }
+                except Exception as e:
+                    return jsonify({
+                        "success": False,
+                        "error": "Invalid or expired token",
+                        "code": "INVALID_TOKEN"
+                    }), 401
+
+    # --------------------------------------------------------
+    # LOGIN MANAGER (for web templates)
+    # --------------------------------------------------------
+    login_manager.login_view = "auth.login"
+    login_manager.login_message = "Please log in to access this page."
+    login_manager.login_message_category = "info"
+    login_manager.session_protection = "strong"
+
+    @login_manager.user_loader
+    def load_user(user_id):
+        # For web templates, we use a simple lookup
+        # In production, you'd fetch from Firestore
+        from flask_login import UserMixin
+        class WebUser:
+            def __init__(self, user_id):
+                self.id = user_id
+                self.is_authenticated = True
+
+        return WebUser(user_id)
+
+    # --------------------------------------------------------
+    # JWT CONFIG (for legacy API compatibility)
+    # --------------------------------------------------------
+    @jwt.user_identity_loader
+    def identity(user):
+        return str(user.id) if hasattr(user, "id") else str(user)
+
+    @jwt.user_lookup_loader
+    def lookup(_jwt_header, jwt_data):
+        identity = jwt_data["sub"]
+        return {"uid": identity}
 
     @jwt.unauthorized_loader
     def unauthorized(reason):
@@ -245,19 +351,10 @@ def create_app(config_class=None):
 
         if current_user.is_authenticated:
             try:
-                from models import Alert, Notification
-
-                unread_alerts = Alert.query.filter_by(
-                    user_id=current_user.id,
-                    is_read=False,
-                    is_dismissed=False
-                ).count()
-
-                unread_notifs = Notification.query.filter_by(
-                    user_id=current_user.id,
-                    is_read=False
-                ).count()
-
+                # These would need to be migrated to Firestore
+                # For now, return 0 to avoid errors
+                unread_alerts = 0
+                unread_notifs = 0
             except Exception:
                 pass
 
@@ -337,28 +434,9 @@ def create_app(config_class=None):
         return jsonify({
             "status": "ok",
             "app": app.config.get("APP_NAME"),
-            "version": app.config.get("APP_VERSION")
+            "version": app.config.get("APP_VERSION"),
+            "firebase_initialized": app.config.get('FIREBASE_INITIALIZED', False)
         })
-
-    # --------------------------------------------------------
-    # DB INIT
-    # --------------------------------------------------------
-    with app.app_context():
-        try:
-            from models import (
-                User,
-                Medicine, MedicineLog,
-                LabTest, DoctorVisit, Appointment,
-                EmergencyCard, TrustedContact,
-                Habit, HabitLog,
-                UserSubscription, HealthTimelineEvent,
-            )
-
-            db.create_all()
-            print("✓ Database initialized successfully")
-
-        except Exception as e:
-            print("DB init error:", e)
 
     return app
 

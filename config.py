@@ -1,6 +1,6 @@
 # ============================================================
 # HEALTH TRACKER PLATFORM — FINAL COMPLETE VERSION
-# config.py — Application Configuration
+# config.py — Application Configuration (Firestore + Firebase)
 # ============================================================
 
 import os
@@ -17,25 +17,19 @@ class Config:
     APP_TAGLINE             = os.environ.get("APP_TAGLINE", "Your Adaptive Health Recovery Platform")
     APP_VERSION             = os.environ.get("APP_VERSION", "2.0.0")
 
-    # ── Database ──────────────────────────────────────────────
-    _db_url = os.environ.get("DATABASE_URL", "sqlite:///health_tracker.db")
+    # ── Firebase ──────────────────────────────────────────────
+    FIREBASE_PROJECT_ID     = os.environ.get("FIREBASE_PROJECT_ID", "health-tracker-2-0")
+    FIREBASE_CREDENTIALS_BASE64 = os.environ.get("FIREBASE_CREDENTIALS_BASE64", "")
+    FIREBASE_CREDENTIALS    = os.environ.get("FIREBASE_CREDENTIALS", "firebase-credentials.json")
+    FCM_SERVER_KEY          = os.environ.get("FCM_SERVER_KEY", "")
 
-    # Render PostgreSQL compatibility
-    if _db_url.startswith("postgres://"):
-        _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+    # ── Firebase (FCM Push Notifications) ─────────────────────
+    FCM_SERVER_KEY       = os.environ.get("FCM_SERVER_KEY", "")
 
-    if _db_url.startswith("postgresql://") and "sslmode=" not in _db_url:
-        separator = "&" if "?" in _db_url else "?"
-        _db_url = f"{_db_url}{separator}sslmode=require"
-
-    SQLALCHEMY_DATABASE_URI = _db_url
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
-    SQLALCHEMY_ECHO = False
-
-    SQLALCHEMY_ENGINE_OPTIONS = {
-        "pool_pre_ping": True,
-        "pool_recycle": 300,
-    }
+    # ── Web Push (VAPID) ──────────────────────────────────────
+    VAPID_PUBLIC_KEY    = os.environ.get("VAPID_PUBLIC_KEY", "")
+    VAPID_PRIVATE_KEY   = os.environ.get("VAPID_PRIVATE_KEY", "")
+    VAPID_EMAIL         = os.environ.get("VAPID_EMAIL", "your@email.com")
 
     # ── JWT (for APK API auth) ────────────────────────────────
     JWT_SECRET_KEY              = os.environ.get("JWT_SECRET_KEY", "jwt-secret-change-in-prod")
@@ -74,9 +68,94 @@ class Config:
         "https://www.googleapis.com/auth/gmail.send",  # send reports as user
     ]
 
-    # ── Firebase (FCM Push Notifications) ─────────────────────
+    # ── Web Push (VAPID) ──────────────────────────────────────
+    VAPID_PUBLIC_KEY    = os.environ.get("VAPID_PUBLIC_KEY", "")
+    VAPID_PRIVATE_KEY   = os.environ.get("VAPID_PRIVATE_KEY", "")
+    VAPID_EMAIL         = os.environ.get("VAPID_EMAIL", "your@email.com")
+
+    # ── Uploads ───────────────────────────────────────────────
+    UPLOAD_FOLDER       = os.environ.get("UPLOAD_FOLDER", "static/uploads")
+    DOCS_FOLDER         = os.environ.get("DOCS_FOLDER", "static/documents")
+    MAX_CONTENT_LENGTH  = int(os.environ.get("MAX_CONTENT_LENGTH", 16 * 1024 * 1024))  # 16MB
+    ALLOWED_EXTENSIONS  = {"png", "jpg", "jpeg", "gif", "webp", "pdf", "doc", "docx"}
+
+    # ── Cache ─────────────────────────────────────────────────
+    CACHE_TYPE              = os.environ.get("CACHE_TYPE", "SimpleCache")
+    CACHE_DEFAULT_TIMEOUT   = int(os.environ.get("CACHE_DEFAULT_TIMEOUT", 300))
+
+    # ── Health Constants ──────────────────────────────────────
+    BP_NORMAL_SYS       = 120
+    BP_NORMAL_DIA       = 80
+    BP_ELEVATED_SYS     = 130
+    BP_HIGH_SYS         = 140
+    BP_HIGH_DIA         = 90
+    BP_CRISIS_SYS       = 180
+    BP_CRISIS_DIA       = 120
+    SUGAR_NORMAL_FASTING = 100
+    SUGAR_PREDIABETES   = 126
+    BMI_NORMAL_MIN      = 18.5
+    BMI_NORMAL_MAX      = 24.9
+    DEFAULT_WATER       = 2.5
+    DEFAULT_STEPS       = 8000
+    DEFAULT_SLEEP       = 7.5
+    DEFAULT_EXERCISE    = 30
+
+    # ── Reminder Settings ─────────────────────────────────────
+    REMINDER_REPEAT_INTERVAL_MINS   = 5    # Default repeat every 5 min
+    REMINDER_MAX_REPEATS            = 10   # Max 10 times before stopping
+
+    # ── Pagination ────────────────────────────────────────────
+    RECORDS_PER_PAGE    = 20
+    RECIPES_PER_PAGE    = 12
+
+    # ── Scheduler Jobs ────────────────────────────────────────
+    SCHEDULER_API_ENABLED = False
+    JOBS = [
+        {
+            "id":       "reminder_engine",
+            "func":     "utils.reminder_engine:run_reminder_check",
+            "trigger":  "interval",
+            "minutes":  1,   # Check every minute
+        },
+        {
+            "id":       "daily_aggregation",
+            "func":     "utils.scheduler:run_daily_aggregation",
+            "trigger":  "cron",
+            "hour":     0, "minute": 5,
+        },
+        {
+            "id":       "weekly_insights",
+            "func":     "utils.scheduler:run_weekly_insights",
+            "trigger":  "cron",
+            "day_of_week": "sun", "hour": 6,
+        },
+        {
+            "id":       "email_reports",
+            "func":     "utils.email_sender:run_scheduled_reports",
+            "trigger":  "cron",
+            "hour":     8, "minute": 0,
+        },
+        {
+            "id":       "health_scores",
+            "func":     "utils.health_score:compute_all_scores",
+            "trigger":  "cron",
+            "hour":     23, "minute": 55,
+        },
+    ]
+
+    # ── AI ─────────────────────────────────────────────────────
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    # ── Firebase ──────────────────────────────────────────────
+    FIREBASE_PROJECT_ID = os.environ.get("FIREBASE_PROJECT_ID", "health-tracker-2-0")
+    FIREBASE_CREDENTIALS_BASE64 = os.environ.get("FIREBASE_CREDENTIALS_BASE64", "")
     FIREBASE_CREDENTIALS = os.environ.get("FIREBASE_CREDENTIALS", "firebase-credentials.json")
-    FCM_SERVER_KEY       = os.environ.get("FCM_SERVER_KEY", "")
+    FCM_SERVER_KEY = os.environ.get("FCM_SERVER_KEY", "")
+    FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "")
+    FIREBASE_MESSAGING_SENDER_ID = os.environ.get("FIREBASE_MESSAGING_SENDER_ID", "")
+    FIREBASE_APP_ID = os.environ.get("FIREBASE_APP_ID", "")
+    FIREBASE_MEASUREMENT_ID = os.environ.get("FIREBASE_MEASUREMENT_ID", "")
 
     # ── Web Push (VAPID) ──────────────────────────────────────
     VAPID_PUBLIC_KEY    = os.environ.get("VAPID_PUBLIC_KEY", "")
@@ -166,8 +245,6 @@ class ProductionConfig(Config):
     SESSION_COOKIE_SECURE   = True
     WTF_CSRF_SSL_STRICT     = True
     ENV                   = 'production'
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL', 'sqlite:///health_tracker.db')
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
     PERMANENT_SESSION_LIFETIME  = timedelta(days=30)
     REMEMBER_COOKIE_DURATION    = timedelta(days=30)
     ENV                   = 'production'
@@ -177,7 +254,6 @@ class ProductionConfig(Config):
 class TestingConfig(Config):
     TESTING                     = True
     DEBUG                       = True
-    SQLALCHEMY_DATABASE_URI     = "sqlite:///:memory:"
     WTF_CSRF_ENABLED            = False
 
 

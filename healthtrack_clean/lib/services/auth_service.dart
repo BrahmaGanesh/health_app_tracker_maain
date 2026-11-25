@@ -1,20 +1,23 @@
-// lib/services/auth_service.dart — Login, register, auto-login, refresh
+// lib/services/auth_service.dart — Login, register, auto-login, refresh with Firebase Auth
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 
 class AuthService extends ChangeNotifier {
-  Map<String, dynamic>? _user;
+  User? _firebaseUser;
+  Map<String, dynamic>? _userProfile;
   bool _loading = false;
   String? _errorMessage;
 
-  Map<String, dynamic>? get user => _user;
+  User? get firebaseUser => _firebaseUser;
+  Map<String, dynamic>? get user => _userProfile;
   bool get loading => _loading;
   bool get isLoading => _loading;
-  bool get isLoggedIn => _user != null;
+  bool get isLoggedIn => _firebaseUser != null;
   String? get errorMessage => _errorMessage;
-  String get userName => _user?['name'] ?? 'User';
-  List<String> get conditions => List<String>.from(_user?['conditions'] ?? []);
+  String get userName => _userProfile?['name'] ?? _firebaseUser?.displayName ?? 'User';
+  List<String> get conditions => List<String>.from(_userProfile?['conditions'] ?? []);
 
   void clearError() {
     _errorMessage = null;
@@ -32,9 +35,8 @@ class AuthService extends ChangeNotifier {
   }
 
   Future<bool> tryAutoLogin() async {
-    final prefs = await SharedPreferences.getInstance();
-    final token = prefs.getString('access_token');
-    if (token == null || token.isEmpty) return false;
+    _firebaseUser = FirebaseAuth.instance.currentUser;
+    if (_firebaseUser == null) return false;
 
     try {
       _setError(null);
@@ -54,6 +56,20 @@ class AuthService extends ChangeNotifier {
     return false;
   }
 
+  Future<bool> _fetchUserProfile() async {
+    try {
+      final resp = await ApiService().get('/auth/me');
+      if (resp.success) {
+        _userProfile = resp.data['user'];
+        notifyListeners();
+        return true;
+      }
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<ApiResponse> login(
     String email,
     String password, {
@@ -63,28 +79,63 @@ class AuthService extends ChangeNotifier {
     _setError(null);
 
     try {
-      final resp = await ApiService().post(
-        '/auth/login',
-        data: {
-          'email': email.trim(),
-          'password': password,
-          'fcm_token': fcmToken ?? '',
-        },
+      // Sign in with Firebase Auth
+      UserCredential userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
       );
 
-      if (resp.success) {
-        await ApiService().saveTokens(
-          resp.data['access_token'],
-          resp.data['refresh_token'],
-        );
-        _user = resp.data['user'];
-        _errorMessage = null;
-      } else {
-        _errorMessage = resp.message ?? 'Login failed';
+      _firebaseUser = userCredential.user;
+
+      // Get ID token for API calls
+      String? idToken = await _firebaseUser?.getIdToken();
+
+      // Update FCM token if provided
+      if (fcmToken != null && fcmToken.isNotEmpty) {
+        await ApiService().post('/auth/fcm-token', data: {'fcm_token': fcmToken});
       }
 
+      // Fetch user profile from backend
+      await _fetchUserProfile();
+
+      _errorMessage = null;
       notifyListeners();
-      return resp;
+
+      return ApiResponse(
+        success: true,
+        message: 'Login successful',
+        data: {'user': _userProfile},
+        statusCode: 200,
+      );
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'user-not-found':
+          message = 'No account found with this email';
+          break;
+        case 'wrong-password':
+          message = 'Invalid email or password';
+          break;
+        case 'invalid-email':
+          message = 'Invalid email address';
+          break;
+        case 'user-disabled':
+          message = 'This account has been disabled';
+          break;
+        case 'too-many-requests':
+          message = 'Too many attempts. Please try again later';
+          break;
+        default:
+          message = 'Login failed: ${e.message}';
+      }
+      _errorMessage = message;
+      notifyListeners();
+      return ApiResponse(
+        success: false,
+        message: message,
+        data: {},
+        statusCode: 401,
+      );
     } catch (e) {
       final error = ApiResponse(
         success: false,
@@ -109,6 +160,20 @@ class AuthService extends ChangeNotifier {
     _setError(null);
 
     try {
+      UserCredential userCredential = await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password,
+      );
+
+      _firebaseUser = userCredential.user;
+
+      // Update display name
+      await _firebaseUser?.updateDisplayName(name.trim());
+
+      // Get ID token for API calls
+      String? idToken = await _firebaseUser?.getIdToken();
+
+      // Create user profile in backend
       final resp = await ApiService().post(
         '/auth/register',
         data: {
@@ -119,10 +184,6 @@ class AuthService extends ChangeNotifier {
       );
 
       if (resp.success) {
-        await ApiService().saveTokens(
-          resp.data['access_token'],
-          resp.data['refresh_token'],
-        );
         _user = resp.data['user'];
         _errorMessage = null;
       } else {
@@ -131,6 +192,29 @@ class AuthService extends ChangeNotifier {
 
       notifyListeners();
       return resp;
+    } on FirebaseAuthException catch (e) {
+      String message;
+      switch (e.code) {
+        case 'email-already-in-use':
+          message = 'Email already registered';
+          break;
+        case 'weak-password':
+          message = 'Password should be at least 6 characters';
+          break;
+        case 'invalid-email':
+          message = 'Invalid email address';
+          break;
+        default:
+          message = 'Registration failed: ${e.message}';
+      }
+      _errorMessage = message;
+      notifyListeners();
+      return ApiResponse(
+        success: false,
+        message: message,
+        data: {},
+        statusCode: 400,
+      );
     } catch (e) {
       final error = ApiResponse(
         success: false,
@@ -148,29 +232,44 @@ class AuthService extends ChangeNotifier {
 
   Future<void> logout() async {
     try {
-      await ApiService().post('/auth/logout');
+      await FirebaseAuth.instance.signOut();
     } catch (_) {}
 
-    await ApiService().clearTokens();
-    _user = null;
+    await ApiService().post('/auth/logout');
+
+    _firebaseUser = null;
+    _userProfile = null;
     _errorMessage = null;
     notifyListeners();
   }
 
   Future<void> refreshUser() async {
     try {
-      final resp = await ApiService().get('/auth/me');
-      if (resp.success) {
-        _user = resp.data['user'];
-        _errorMessage = null;
-        notifyListeners();
+      _firebaseUser = FirebaseAuth.instance.currentUser;
+      if (_firebaseUser != null) {
+        await _fetchUserProfile();
       } else {
-        _errorMessage = resp.message ?? 'Failed to refresh user';
+        _userProfile = null;
         notifyListeners();
       }
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();
+    }
+  }
+
+  Future<void> _fetchUserProfile() async {
+    try {
+      final resp = await ApiService().get('/auth/me');
+      if (resp.success) {
+        _userProfile = resp.data['user'];
+        _errorMessage = null;
+        notifyListeners();
+      } else {
+        _userProfile = null;
+      }
+    } catch (e) {
+      _userProfile = null;
     }
   }
 
@@ -255,6 +354,14 @@ class AuthService extends ChangeNotifier {
       _errorMessage = error.message;
       notifyListeners();
       return error;
+    }
+  }
+
+  Future<void> reauthenticate(String password) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null && user.email != null) {
+      final credential = EmailAuthProvider.credential(email: user.email!, password: password);
+      await user.reauthenticateWithCredential(credential);
     }
   }
 }
