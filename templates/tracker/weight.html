@@ -737,8 +737,8 @@
 {% set curr = r.value_1 %}
 <tr>
   <td>
-    <div style="font-weight:600;">{{ r.recorded_at.strftime('%d %b %Y') }}</div>
-    <div style="font-size:11px;color:var(--text-muted);">{{ r.recorded_at.strftime('%I:%M %p') }}</div>
+    <div style="font-weight:600;">{{ r.recorded_at | safe_strftime("%d %b %Y") if r.recorded_at else '—' }}</div>
+    <div style="font-size:11px;color:var(--text-muted);">{{ r.recorded_at | safe_strftime("%I:%M %p") if r.recorded_at else '—' }}</div>
   </td>
   <td style="font-family:'DM Mono',monospace;font-size:16px;font-weight:600;color:var(--violet);">{{ curr }}kg</td>
   <td style="font-family:'DM Mono',monospace;font-size:14px;">
@@ -780,7 +780,7 @@
 
 {% block extra_js %}
 <script>
-const chartData = {{ chart_data | tojson | safe }};
+const chartData = {{ chart_data | default([]) | tojson }};
 const targetWeight = {{ target_weight if target_weight is not none else 'null' }};
 const heightCm = {{ current_user.health_profile.height_cm if current_user.health_profile and current_user.health_profile.height_cm else 'null' }};
 
@@ -863,7 +863,7 @@ async function loadWeight(days, btn) {
   if (btn) btn.classList.add('active');
 
   try {
-    const response = await fetch(`{{ url_for('analytics.weight_data') }}?days=${days}`, {
+    const response = await fetch(`{{ url_for('analytics.weight_data") }}?days=${days}`, {
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     });
 

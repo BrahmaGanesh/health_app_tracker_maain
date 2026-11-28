@@ -225,7 +225,7 @@
   {% if today_logs %}
     {% for r in today_logs %}
     <div class="log-item">
-      <div class="log-time">{{ r.recorded_at.strftime('%I:%M %p') }}</div>
+      <div class="log-time">{{ r.recorded_at | safe_strftime("%I:%M %p") }}</div>
       <div class="log-amount">💧 {{ r.value_1 }}L</div>
       <a href="{{ url_for('tracker.delete_metric', metric_id=r.id) }}"
          class="del-btn" onclick="return confirm('Remove this entry?')">

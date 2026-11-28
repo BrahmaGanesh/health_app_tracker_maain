@@ -69,7 +69,7 @@
 .back-link:hover{color:var(--accent);}
 </style>
 
-<a href="{{ url_for('meal.recipes') }}" class="back-link">← Back to Recipes</a>
+<a href="{{ url_for('meal.recipe_search') }}" class="back-link">← Back to Recipes</a>
 
 <!-- HERO -->
 {% set cat_emoji = {'Breakfast':'🍳','Lunch':'🍱','Dinner':'🍽️','Snack':'🍎','Morning':'☕','Soup':'🥣','Salad':'🥗','BP Special':'❤️','Special':'⭐'} %}
@@ -105,7 +105,7 @@
           <span class="rc-meta-lbl">Sodium</span>
         </div>
       </div>
-      <a href="{{ url_for('meal.favorite_recipe', recipe_id=recipe.id) }}"
+      <a href="{{ url_for('meal.toggle_favorite', recipe_id=recipe.id) }}"
          class="fav-hero-btn {% if is_fav %}active{% endif %}">
         {{ '❤️ Saved' if is_fav else '🤍 Save Recipe' }}
       </a>
@@ -196,7 +196,7 @@
         <div class="macro-bar-row">
           <div class="macro-bar-label">
             <span style="font-size:12px;">{{ label }}</span>
-            <span style="font-family:'DM Mono',monospace;font-size:12px;">{{ val|round(1) }}{% if 'Calories' in label %} kcal{% elif 'Sodium' in label %} mg{% else %}g{% endif %}</span>
+            <span style="font-family:'DM Mono',monospace;font-size:12px;">{{ (val | float) | round(1) }}{% if 'Calories' in label %} kcal{% elif 'Sodium' in label %} mg{% else %}g{% endif %}</span>
           </div>
           <div class="macro-bar-bg">
             <div class="macro-bar-fill" style="width:{{ [(val/maxval*100)|int, 100]|min }}%; background:{{ color }};"></div>
@@ -216,7 +216,7 @@
           </div>
           {% if recipe.sugar %}
           <div class="nutri-item">
-            <span class="nutri-val" style="color:#f59e0b;">{{ recipe.sugar|round(1) }}g</span>
+            <span class="nutri-val" style="color:#f59e0b;">{{ (recipe.sugar | float) | round(1) }}g</span>
             <span class="nutri-lbl">🍬 Sugar</span>
           </div>
           {% endif %}

@@ -84,7 +84,7 @@
   <!-- FILTERS -->
   <div class="filter-panel">
     <div class="fp-title">🔍 Filter Recipes</div>
-    <form method="GET" action="{{ url_for('meal.recipes') }}">
+    <form method="GET" action="{{ url_for('meal.recipe_search') }}">
 
       <div class="fp-section">
         <div class="fp-section-label">Search</div>
@@ -128,7 +128,7 @@
       <button type="submit" class="fp-apply">Apply Filters</button>
 
       {% if search or selected_category != 'all' or selected_goal != 'all' or selected_diet != 'all' %}
-      <a href="{{ url_for('meal.recipes') }}" style="display:block;text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted);">✕ Clear All</a>
+      <a href="{{ url_for('meal.recipe_search') }}" style="display:block;text-align:center;margin-top:8px;font-size:12px;color:var(--text-muted);">✕ Clear All</a>
       {% endif %}
     </form>
   </div>
@@ -164,7 +164,7 @@
       <div class="recipe-card stagger-{{ [1,2,3,4,5,6]|random }}">
         <div class="recipe-thumb {{ cat_class.get(r.category, 'thumb-special') }}">
           <span>{{ cat_emoji.get(r.category, '🍲') }}</span>
-          <a href="{{ url_for('meal.favorite_recipe', recipe_id=r.id) }}" class="fav-btn"
+          <a href="{{ url_for('meal.toggle_favorite', recipe_id=r.id) }}" class="fav-btn"
              title="{{ 'Remove from favourites' if r.id in fav_ids else 'Add to favourites' }}">
             {{ '❤️' if r.id in fav_ids else '🤍' }}
           </a>
@@ -193,7 +193,7 @@
       <div style="font-size:52px;margin-bottom:14px;">🔍</div>
       <div style="font-family:'Fraunces',serif;font-size:20px;font-weight:700;margin-bottom:8px;">No recipes found</div>
       <div style="font-size:14px;margin-bottom:20px;">Try adjusting your filters or search term.</div>
-      <a href="{{ url_for('meal.recipes') }}" class="btn btn-primary btn-sm">Clear Filters</a>
+      <a href="{{ url_for('meal.recipe_search') }}" class="btn btn-primary btn-sm">Clear Filters</a>
     </div>
     {% endif %}
   </div>

@@ -5,6 +5,7 @@ import os
 import logging
 from functools import wraps
 from typing import Optional, Dict, Any
+from datetime import datetime
 
 from flask import request, jsonify, g, current_app
 from flask_login import current_user as flask_current_user
@@ -87,7 +88,6 @@ class AuthService:
     def update_user_profile(self, uid: str, data: dict) -> bool:
         """Update user profile in Firestore."""
         from services.firebase_admin import get_firebase_admin
-        from datetime import datetime
 
         db = self.firebase_admin.firestore
         data['updated_at'] = datetime.utcnow()

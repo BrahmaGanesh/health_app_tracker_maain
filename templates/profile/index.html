@@ -96,11 +96,11 @@
           {% if user.health_profile.diet_preference %}<span class="hero-chip">{{ user.health_profile.diet_preference|replace('_',' ')|title }}</span>{% endif %}
         {% endif %}
         {% if user.bmi %}<span class="hero-chip">BMI {{ user.bmi }} · {{ user.bmi_status }}</span>{% endif %}
-        <span class="hero-chip">Member since {{ user.created_at.strftime('%b %Y') }}</span>
+        <span class="hero-chip">Member since {{ user.created_at | safe_strftime("%b %Y') if user.created_at else '—' }}</span>
       </div>
     </div>
     <div class="hero-actions">
-      <a href="{{ url_for('profile.edit') }}" class="btn-edit-hero">✏️ Edit Profile</a>
+      <a href="{{ url_for('profile.edit") }}" class="btn-edit-hero">✏️ Edit Profile</a>
     </div>
   </div>
 </div>
@@ -134,7 +134,7 @@
       <div class="info-row"><span class="info-key">Name</span><span class="info-val">{{ user.name }}</span></div>
       <div class="info-row"><span class="info-key">Gender</span><span class="info-val">{{ user.health_profile.gender|title if user.health_profile and user.health_profile.gender else '—' }}</span></div>
       <div class="info-row"><span class="info-key">Age</span><span class="info-val">{{ user.age or '—' }} yrs</span></div>
-      <div class="info-row"><span class="info-key">DOB</span><span class="info-val">{{ user.health_profile.date_of_birth.strftime('%d %b %Y') if user.health_profile and user.health_profile.date_of_birth else '—' }}</span></div>
+      <div class="info-row"><span class="info-key">DOB</span><span class="info-val">{{ user.health_profile.date_of_birth | safe_strftime("%d %b %Y') if user.health_profile and user.health_profile.date_of_birth else '—' }}</span></div>
     </div>
   </div>
 
@@ -179,7 +179,7 @@
       <div class="info-row"><span class="info-key">Goal Speed</span><span class="info-val">{{ user.goals.goal_speed|title if user.goals.goal_speed else '—' }}</span></div>
       <div class="info-row"><span class="info-key">Water Target</span><span class="info-val mono">{{ user.goals.target_water_litres or 2.5 }}L/day</span></div>
       {% else %}
-      <div style="padding:12px 0;color:var(--text-muted);font-size:13px;">No goals set. <a href="{{ url_for('profile.onboarding_step4') }}" style="color:var(--accent);">Set now →</a></div>
+      <div style="padding:12px 0;color:var(--text-muted);font-size:13px;">No goals set. <a href="{{ url_for('profile.onboarding_step4") }}" style="color:var(--accent);">Set now →</a></div>
       {% endif %}
     </div>
   </div>
@@ -203,7 +203,7 @@
       </div>
       <div class="info-row">
         <span class="info-key">Last BP Check</span>
-        <span class="info-val">{% if latest_bp %}{{ latest_bp.recorded_at.strftime('%d %b') }}{% else %}—{% endif %}</span>
+        <span class="info-val">{% if latest_bp and latest_bp.recorded_at %}{{ latest_bp.recorded_at | safe_strftime("%d %b") }}{% else %}—{% endif %}</span>
       </div>
     </div>
   </div>

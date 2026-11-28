@@ -75,11 +75,11 @@
   <div class="hero-left">
     <div class="hero-eyebrow">🛒 Shopping List</div>
     <h1 class="hero-title">Grocery List</h1>
-    <p class="hero-sub">Week of {{ week_start.strftime('%d %b %Y') }} — auto-generated from your meal plan.</p>
+    <p class="hero-sub">Week of {{ week_start | safe_strftime("%d %b %Y') if week_start else 'this week' }} — auto-generated from your meal plan.</p>
   </div>
   <div class="hero-actions">
     <button class="btn-action" onclick="window.print()">🖨️ Print</button>
-    <a href="{{ url_for('meal.meals') }}" class="btn-action">🍱 View Meal Plan</a>
+    <a href="{{ url_for('meal.meals") }}" class="btn-action">🍱 View Meal Plan</a>
   </div>
 </div>
 

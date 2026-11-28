@@ -6,7 +6,6 @@ from datetime import datetime, date
 from flask import Blueprint, request, jsonify, send_file, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-from extensions import db
 from models import Document, User, now_ist, today_ist, UserSubscription
 
 document_api_bp = Blueprint("document_api", __name__)
@@ -23,7 +22,7 @@ MIME_ALLOWED = {
 
 # ── Plan helpers ───────────────────────────────────────────────────
 def _plan(user_id):
-    sub = UserSubscription.query.filter_by(user_id=user_id).first()
+    sub = (UserSubscription.get_all(filters={"user_id": user_id}, limit=1) or [None])[0]
     if not sub:
         return "free"
     return sub.plan if sub.is_active else "free"
@@ -106,33 +105,8 @@ def list_documents():
     uid = get_jwt_identity()
     limit = _doc_limit(uid)
 
-    q = Document.query.filter_by(user_id=uid)
-
-    if _is_premium(uid):
-        doc_type = request.args.get("type")
-        search = request.args.get("search", "").strip()
-        fav_only = request.args.get("favourites") == "true"
-        sort_by = request.args.get("sort", "date")
-
-        if doc_type:
-            q = q.filter(Document.doc_type == doc_type)
-        if search:
-            q = q.filter(Document.title.ilike(f"%{search}%"))
-        if fav_only:
-            q = q.filter(Document.is_important.is_(True))
-
-        sort_map = {
-            "date": Document.uploaded_at.desc(),
-            "name": Document.title.asc(),
-            "size": Document.file_size_kb.desc(),
-            "type": Document.doc_type.asc(),
-        }
-        q = q.order_by(sort_map.get(sort_by, Document.uploaded_at.desc()))
-    else:
-        q = q.order_by(Document.uploaded_at.desc())
-
-    docs = q.limit(limit + 5).all()
-    count = Document.query.filter_by(user_id=uid).count()
+    docs = Document.get_all(filters={"user_id": uid}, order_by="-created_at")
+    count = Document.count(filters={"user_id": uid})
 
     return jsonify({
         "success": True,
@@ -157,7 +131,7 @@ def list_documents():
 @jwt_required()
 def upload_document():
     uid = get_jwt_identity()
-    count = Document.query.filter_by(user_id=uid).count()
+    count = Document.count(filters={"user_id": uid})
     limit = _doc_limit(uid)
 
     if count >= limit:
@@ -216,8 +190,8 @@ def upload_document():
         uploaded_at=now_ist(),
     )
 
-    db.session.add(doc)
-    db.session.commit()
+    doc.save()
+    # # db.session.commit()  # Firestore auto-commits  # Firestore auto-commits
 
     return jsonify({
         "success": True,
@@ -241,7 +215,7 @@ def rename_document(did):
             "upgrade_required": True
         }), 403
 
-    doc = Document.query.filter_by(id=did, user_id=uid).first_or_404()
+    doc = Document.get_by_id_or_404(id=did, user_id=uid)
     d = request.get_json() or {}
     new_title = (d.get("title") or "").strip()
 
@@ -249,7 +223,7 @@ def rename_document(did):
         return jsonify({"success": False, "message": "Title cannot be empty"}), 400
 
     doc.title = new_title
-    db.session.commit()
+    # # db.session.commit()  # Firestore auto-commits  # Firestore auto-commits
     return jsonify({"success": True, "message": "✅ Renamed", "data": doc.to_dict()})
 
 
@@ -268,9 +242,9 @@ def toggle_favourite(did):
             "upgrade_required": True
         }), 403
 
-    doc = Document.query.filter_by(id=did, user_id=uid).first_or_404()
+    doc = Document.get_by_id_or_404(id=did, user_id=uid)
     doc.is_important = not bool(doc.is_important)
-    db.session.commit()
+    # # db.session.commit()  # Firestore auto-commits  # Firestore auto-commits
 
     action = "⭐ Starred" if doc.is_important else "Unstarred"
     return jsonify({
@@ -288,7 +262,7 @@ def toggle_favourite(did):
 @jwt_required()
 def update_document(did):
     uid = get_jwt_identity()
-    doc = Document.query.filter_by(id=did, user_id=uid).first_or_404()
+    doc = Document.get_by_id_or_404(id=did, user_id=uid)
     d = request.get_json() or {}
 
     if "title" in d and d["title"]:
@@ -307,7 +281,7 @@ def update_document(did):
         except Exception:
             pass
 
-    db.session.commit()
+    # # db.session.commit()  # Firestore auto-commits  # Firestore auto-commits
     return jsonify({"success": True, "message": "Updated", "data": doc.to_dict()})
 
 
@@ -326,7 +300,7 @@ def replace_document(did):
             "upgrade_required": True
         }), 403
 
-    doc = Document.query.filter_by(id=did, user_id=uid).first_or_404()
+    doc = Document.get_by_id_or_404(id=did, user_id=uid)
     d = request.get_json() or {}
 
     file_b64 = d.get("file_data", "")
@@ -355,7 +329,7 @@ def replace_document(did):
     doc.mime_type = MIME_ALLOWED[ext]
     doc.uploaded_at = now_ist()
 
-    db.session.commit()
+    # # db.session.commit()  # Firestore auto-commits  # Firestore auto-commits
     return jsonify({
         "success": True,
         "message": "✅ File replaced",
@@ -371,7 +345,7 @@ def replace_document(did):
 @jwt_required()
 def download_document(did):
     uid = get_jwt_identity()
-    doc = Document.query.filter_by(id=did, user_id=uid).first_or_404()
+    doc = Document.get_by_id_or_404(id=did, user_id=uid)
 
     if not doc.file_path or not os.path.exists(doc.file_path):
         return jsonify({"success": False, "message": "File not found on server"}), 404
@@ -394,7 +368,7 @@ def preview_document(did):
             "message": "🔒 Preview requires Premium plan"
         }), 403
 
-    doc = Document.query.filter_by(id=did, user_id=uid).first_or_404()
+    doc = Document.get_by_id_or_404(id=did, user_id=uid)
 
     if not doc.file_path or not os.path.exists(doc.file_path):
         return jsonify({"success": False, "message": "File not found"}), 404
@@ -415,7 +389,7 @@ def preview_document(did):
 @jwt_required()
 def delete_document(did):
     uid = get_jwt_identity()
-    doc = Document.query.filter_by(id=did, user_id=uid).first_or_404()
+    doc = Document.get_by_id_or_404(id=did, user_id=uid)
     title = doc.title
 
     if doc.file_path and os.path.exists(doc.file_path):
@@ -424,7 +398,7 @@ def delete_document(did):
         except Exception:
             pass
 
-    db.session.delete(doc)
-    db.session.commit()
+    doc.delete()
+    # # db.session.commit()  # Firestore auto-commits  # Firestore auto-commits
 
     return jsonify({"success": True, "message": f"🗑️ {title} deleted"})

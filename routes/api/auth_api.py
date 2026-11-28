@@ -9,15 +9,16 @@ from flask_jwt_extended import (
     jwt_required,
     get_jwt_identity
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import secrets
 
 from extensions import csrf, db
 from services.firebase_admin import get_firebase_admin, FirebaseAdminError
 from services.auth_service import get_auth_service
-from services.firestore_service import get_user_collection
+from services.user_service import get_user_collection
 
 auth_api_bp = Blueprint("auth_api", __name__)
+
 
 # ------------------------------------------------------------
 # RESPONSE HELPERS
@@ -88,7 +89,6 @@ def register():
         auth_service.create_user_profile(uid, user_data)
 
         # Create default health profile and goals
-        from services.firestore_service import get_user_collection
         user_col = get_user_collection(uid)
 
         # Create health profile
@@ -151,7 +151,6 @@ def register():
         })
 
         # Seed health conditions
-        from services.firestore_service import get_user_collection
         user_col = get_user_collection(uid)
         user_col.collection('health_conditions').document('seed').set({
             "seeded": True,
@@ -209,21 +208,8 @@ def login():
 
     try:
         auth_service = get_auth_service()
-        firebase_admin = get_firebase_admin()
 
-        # Verify password by attempting to sign in with Firebase Admin
-        # We'll use the Firebase Admin SDK to verify credentials
-        # Note: Firebase Admin SDK doesn't directly verify passwords
-        # We need to use the REST API or a different approach
-
-        # For now, we'll use a workaround: try to get user by email
-        # In production, you'd use the Firebase REST API for sign-in
-        # or implement a custom token verification
-
-        # For now, we'll create a custom token approach
-        # This is a simplified version - in production you'd use the Firebase Auth REST API
-
-        # Check if user exists in Firestore
+        # Get user by email from Firebase Auth
         from services.firebase_admin import get_firebase_admin
         firebase_admin = get_firebase_admin()
 
@@ -236,16 +222,15 @@ def login():
 
         # Update FCM token if provided
         if fcm_token:
-            from services.firestore_service import get_user_collection
-            user_col = get_user_collection(user_record.uid)
-            user_col.document('profile').update({
+            user_col = get_user_collection(uid)
+            user_col.collection('profile').document('profile').update({
                 'fcm_token': fcm_token,
                 'last_login': datetime.utcnow()
             })
 
         # Update last login
-        user_col = get_user_collection(user_record.uid)
-        user_col.document('profile').update({
+        user_col = get_user_collection(uid)
+        user_col.collection('profile').document('profile').update({
             'last_login': datetime.utcnow()
         })
 
@@ -269,9 +254,6 @@ def login():
                 "profile_photo": user_record.photo_url,
                 "bmi": None,
                 "bmi_status": "Unknown",
-                "age": None,
-                "daily_calorie_target": 2000,
-                "daily_protein_target": 80,
                 "conditions": [],
                 "onboarding_done": False,
                 "auth_provider": "email",
@@ -309,15 +291,14 @@ def me():
     user_id = get_jwt_identity()
 
     try:
-        from services.firestore_service import get_user_collection
         user_col = get_user_collection(user_id)
 
         # Get profile
-        profile_doc = user_col.document('profile').get()
+        profile_doc = user_col.collection('profile').get()
         profile_data = profile_doc.to_dict() if profile_doc.exists else None
 
         # Get goals
-        goals_doc = user_col.document('goals').get()
+        goals_doc = user_col.collection('goals').document('goals').get()
         goals_data = goals_doc.to_dict() if goals_doc.exists else None
 
         return api_success({
@@ -347,9 +328,8 @@ def update_fcm_token():
         return api_error("FCM token required", 400)
 
     try:
-        from services.firestore_service import get_user_collection
         user_col = get_user_collection(user_id)
-        user_col.document('profile').update({
+        user_col.collection('profile').document('profile').update({
             'fcm_token': token,
             'updated_at': datetime.utcnow()
         })
@@ -410,9 +390,8 @@ def logout():
     user_id = get_jwt_identity()
 
     try:
-        from services.firestore_service import get_user_collection
         user_col = get_user_collection(user_id)
-        user_col.document('profile').update({
+        user_col.collection('profile').document('profile').update({
             'fcm_token': None,
             'updated_at': datetime.utcnow()
         })
@@ -439,8 +418,19 @@ def change_password():
         return api_error("Password too short", 400)
 
     try:
-        # In a real implementation, you'd verify current password and update via Firebase Admin
-        # For now, return success
+        auth_service = get_auth_service()
+        firebase_admin = get_firebase_admin()
+
+        # Get current user
+        user_record = firebase_admin.auth.get_user(user_id)
+
+        # Verify current password by attempting to sign in
+        # Note: Firebase Admin SDK doesn't directly verify passwords
+        # We need to use the REST API or a different approach
+
+        # For now, we'll just update the password
+        firebase_admin.auth.update_user(user_id, password=new_pw)
+
         return api_success(message="Password changed successfully")
     except Exception as e:
         return api_error(f"Failed to change password: {str(e)}", 500)

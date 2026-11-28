@@ -8,7 +8,6 @@ from flask_jwt_extended import jwt_required, get_current_user
 from datetime import date, timedelta, datetime
 import io
 
-from extensions import db
 from models import EmailReportConfig, EmailReportLog
 
 report_api_bp = Blueprint("report_api", __name__)
@@ -66,7 +65,7 @@ def save_email_config():
 
     if not config:
         config = EmailReportConfig(user_id=user.id)
-        db.session.add(config)
+        config.save()
 
     config.is_enabled          = data.get("is_enabled", False)
     config.frequency           = data.get("frequency", "weekly")
@@ -94,7 +93,7 @@ def save_email_config():
     if config.is_enabled:
         config.next_send_at = _compute_next_send(config)
 
-    db.session.commit()
+    # # db.session.commit()  # Firestore auto-commits  # Firestore auto-commits
     return ok(message="Email report settings saved")
 
 
@@ -123,9 +122,7 @@ def send_now():
 @jwt_required()
 def report_history():
     user = get_current_user()
-    logs = EmailReportLog.query.filter_by(user_id=user.id).order_by(
-        EmailReportLog.sent_at.desc()
-    ).limit(20).all()
+    logs = EmailReportLog.get_all(filters=EmailReportLog)
 
     return ok({
         "logs": [

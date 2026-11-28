@@ -5,13 +5,14 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from datetime import date, timedelta
 
+from models import EmailReportLog, EmailReportConfig
+
 report_bp = Blueprint("reports", __name__)
 
 @report_bp.route("/")
 @login_required
 def index():
-    from models import EmailReportLog, EmailReportConfig
-    logs   = EmailReportLog.query.filter_by(user_id=current_user.id).order_by(EmailReportLog.sent_at.desc()).limit(10).all()
+    logs = EmailReportLog.get_all(filters={"user_id": current_user.id}, order_by="-sent_at")
     config = current_user.email_report_config
     return render_template("reports/index.html", logs=logs, config=config)
 
@@ -97,11 +98,12 @@ def download_excel():
         return send_file(buf, mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                          as_attachment=True, download_name=f"healthtrack_{today}.xlsx")
     except ImportError:
-        flash("openpyxl required for Excel export. Install with: pip install openpyxl", "warning")
+        flash("Excel export requires openpyxl. Install with: pip install openpyxl", "warning")
         return redirect(url_for("reports.index"))
     except Exception as e:
         flash(f"Export failed: {e}", "danger")
         return redirect(url_for("reports.index"))
+
 
 @report_bp.route("/csv")
 @login_required
@@ -121,7 +123,7 @@ def download_csv():
         w.writerow([d["date"],d["weight"] or "",d["bp_sys"] or "",d["bp_dia"] or "",
                     d["water"] or "",d["sleep"] or "",d["steps"] or "",d["sugar_f"] or "",d["score"] or ""])
     w.writerow([])
-    w.writerow(["Averages","","","","","","","",""])
+    w.writerow(["Average","","","","","","","",""])
     avgs = data["averages"]
     w.writerow(["Average",avgs.get("weight",""),avgs.get("bp_sys",""),avgs.get("bp_dia",""),
                 avgs.get("water",""),avgs.get("sleep",""),avgs.get("steps",""),"",avgs.get("score","")])
@@ -129,4 +131,3 @@ def download_csv():
     buf = io.BytesIO(output.getvalue().encode()); buf.seek(0)
     return send_file(buf, mimetype="text/csv", as_attachment=True,
                      download_name=f"healthtrack_{today}.csv")
-

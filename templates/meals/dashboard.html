@@ -69,12 +69,12 @@
     <div class="hero-eyebrow">🍱 Personalised Meals</div>
     <h1 class="hero-title">Weekly Meal Plan</h1>
     <p class="hero-sub">
-      Condition-specific meals for the week of {{ week_start.strftime('%d %b %Y') }}.
+      Condition-specific meals for the week of {{ week_start | safe_strftime("%d %b %Y') if week_start else 'this week' }}.
     </p>
   </div>
   <div class="hero-btns">
     {% if active_plan %}
-    <a href="{{ url_for('meal.grocery_list') }}" class="btn-gen">🛒 Grocery List</a>
+    <a href="{{ url_for('meal.grocery_list") }}" class="btn-gen">🛒 Grocery List</a>
     {% endif %}
     <a href="{{ url_for('meal.generate_weekly_meals') }}" class="btn-gen primary-btn">🔄 {{ 'Regenerate Plan' if active_plan else 'Generate Plan' }}</a>
   </div>
@@ -121,7 +121,7 @@
 <div class="days-grid">
 {% for day in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'] %}
 {% set day_data = weekly_data.get(day, {}) %}
-{% set is_today = (day == today.strftime('%A')) %}
+{% set is_today = (day == (today.strftime('%A') if today else 'Monday')) %}
 
 <div class="day-card" style="animation-delay:{{ loop.index * 0.05 }}s;">
   <div class="day-header">

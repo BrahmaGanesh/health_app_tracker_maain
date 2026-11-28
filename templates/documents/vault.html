@@ -85,7 +85,7 @@
         <div class="doc-body">
           <div class="doc-title" title="{{ doc.title }}">{{ doc.title }}</div>
           <div class="doc-meta">
-            {{ doc.uploaded_at.strftime('%d %b %Y') }}
+            {{ doc.uploaded_at | safe_strftime("%d %b %Y") }}
             {% if doc.file_size_kb %} · {{ doc.file_size_kb }}KB{% endif %}
           </div>
           <div class="doc-actions">

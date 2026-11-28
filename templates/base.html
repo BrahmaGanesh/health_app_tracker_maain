@@ -997,7 +997,7 @@
         <span class="nav-item-text">Meal Plan</span>
       </a>
 
-      <a href="{{ url_for('meal.recipes') }}"
+      <a href="{{ url_for('meal.recipe_search') }}"
          class="nav-item">
         <span class="nav-item-icon">🍲</span>
         <span class="nav-item-text">Recipes</span>
@@ -1009,7 +1009,7 @@
         <span class="nav-item-text">Grocery List</span>
       </a>
 
-      <a href="{{ url_for('nutrition.dashboard') }}"
+      <a href="{{ url_for('nutrition.analysis') }}"
          class="nav-item {% if request.endpoint and 'nutrition.' in request.endpoint %}active{% endif %}">
         <span class="nav-item-icon">🥗</span>
         <span class="nav-item-text">Nutrition</span>
@@ -1190,7 +1190,7 @@
       <span class="bottom-nav-icon">❤️</span>
       BP
     </a>
-    <a href="{{ url_for('meal.recipes') }}"
+    <a href="{{ url_for('meal.recipe_search') }}"
        class="bottom-nav-item">
       <span class="bottom-nav-icon">🍲</span>
       Recipes

@@ -1,9 +1,8 @@
 # routes/email_report_routes.py — Email Report Scheduling Website
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
-from extensions import db
-from models import EmailReportConfig, EmailReportLog
 from datetime import datetime
+from models import EmailReportConfig, EmailReportLog
 
 email_report_bp = Blueprint("email_reports", __name__)
 
@@ -13,8 +12,8 @@ def settings():
     config = current_user.email_report_config
     if not config:
         config = EmailReportConfig(user_id=current_user.id)
-        db.session.add(config)
-        db.session.commit()
+        config.save()
+        # db.session.commit()  # Firestore auto-commits
 
     if request.method == "POST":
         config.is_enabled         = bool(request.form.get("is_enabled"))
@@ -37,11 +36,12 @@ def settings():
             config.next_send_at = _compute_next_send(config)
         else:
             config.next_send_at = None
-        db.session.commit()
+        config.save()
+        # db.session.commit()  # Firestore auto-commits
         flash("✅ Email report settings saved!", "success")
         return redirect(url_for("email_reports.settings"))
 
-    logs = EmailReportLog.query.filter_by(user_id=current_user.id).order_by(EmailReportLog.sent_at.desc()).limit(10).all()
+    logs = EmailReportLog.get_all(filters={"user_id": current_user.id}, order_by="-sent_at")
     return render_template("reports/email_settings.html", config=config, logs=logs)
 
 @email_report_bp.route("/send-now", methods=["POST"])

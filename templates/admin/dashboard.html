@@ -64,7 +64,7 @@
   <div class="alert-row">
     <span>🚨</span>
     <span style="flex:1;">{{ a.title }} — {{ a.message[:80] }}</span>
-    <span style="color:var(--text-muted);font-size:11px;">{{ a.created_at.strftime('%d %b %I:%M %p') }}</span>
+    <span style="color:var(--text-muted);font-size:11px;">{{ a.created_at | safe_strftime("%d %b %I:%M %p") }}</span>
   </div>
   {% endfor %}
 </div>
@@ -88,7 +88,7 @@
         <div style="font-weight:600;color:var(--text-primary);">{{ u.name }}</div>
         <div style="font-size:11px;color:var(--text-muted);">{{ u.email }}</div>
       </div>
-      <span style="font-size:11px;color:var(--text-muted);">{{ u.created_at.strftime('%d %b') }}</span>
+      <span style="font-size:11px;color:var(--text-muted);">{{ u.created_at | safe_strftime("%d %b") }}</span>
       {% if u.is_admin %}
       <span style="background:#ede9fe;color:#7c3aed;border-radius:100px;padding:2px 8px;font-size:10px;font-weight:700;">Admin</span>
       {% endif %}
@@ -118,7 +118,7 @@
   <div class="user-row">
     <span style="font-size:16px;">📝</span>
     <span style="flex:1;">{{ log.action }}</span>
-    <span style="font-size:11px;color:var(--text-muted);">{{ log.created_at.strftime('%d %b %I:%M %p') }}</span>
+    <span style="font-size:11px;color:var(--text-muted);">{{ log.created_at | safe_strftime("%d %b %I:%M %p") }}</span>
   </div>
   {% endfor %}
   {% else %}

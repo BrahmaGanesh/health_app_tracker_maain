@@ -81,7 +81,7 @@
 
 <div class="page">
     <div class="page-title">📊 Business Dashboard</div>
-    <div class="page-sub">{{ today.strftime('%A, %d %B %Y') }} · Live subscriber & revenue overview</div>
+    <div class="page-sub">{{ today | safe_strftime("%A, %d %B %Y') if today else 'Today' }} · Live subscriber & revenue overview</div>
 
     <!-- KPIs -->
     <div class="kpi-row">
@@ -173,63 +173,7 @@
                 <span style="font-size:20px;">⏰</span>
                 <div style="flex:1;">
                     <div style="font-size:13px;font-weight:600;">{{ u.name }}</div>
-                    <div style="font-size:11px;color:var(--muted);">{{ u.email }} · {{ u.plan | title }} · Expires {{ u.expires_at.strftime('%d %b %Y') }}</div>
-                </div>
-                <a href="mailto:{{ u.email }}?subject=Renew your HealthTrack subscription&body=Hi {{ u.name }}, your HealthTrack {{ u.plan | title }} plan expires on {{ u.expires_at.strftime('%d %b %Y') }}. Renew now to continue enjoying all features."
-                   style="font-size:12px;font-weight:700;color:var(--warning);text-decoration:none;">📧 Email</a>
-            </div>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- All subscribers table -->
-    <div class="card">
-        <div class="card-hdr">
-            <div class="card-title">👥 All Subscribers</div>
-            <span style="background:var(--navy);color:white;border-radius:100px;padding:3px 12px;font-size:11px;font-weight:600;">{{ subscriptions|length }}</span>
-        </div>
-        <div class="card-body">
-            <div class="filter-bar">
-                <input type="text" id="searchInput" placeholder="🔍 Search name or email..." oninput="filterTable()">
-                <select id="planFilter" onchange="filterTable()">
-                    <option value="">All plans</option>
-                    <option value="premium">Premium</option>
-                    <option value="family">Family</option>
-                    <option value="free">Free</option>
-                </select>
-                <select id="statusFilter" onchange="filterTable()">
-                    <option value="">All statuses</option>
-                    <option value="active">Active</option>
-                    <option value="expired">Expired</option>
-                    <option value="trial">Trial</option>
-                </select>
-                <a href="{{ url_for('business.export_subscribers') }}" class="btn">⬇ Export CSV</a>
-            </div>
-            <div style="overflow-x:auto;">
-                <table class="table" id="subscriberTable">
-                    <thead>
-                    <tr>
-                        <th>#</th><th>Name</th><th>Email</th><th>Plan</th>
-                        <th>Status</th><th>Started</th><th>Expires</th>
-                        <th>Amount</th><th>Total paid</th><th>Action</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    {% for sub in subscriptions %}
-                    <tr data-name="{{ sub.user.name|lower }}" data-email="{{ sub.user.email|lower }}" data-plan="{{ sub.plan }}" data-status="{{ sub.status }}">
-                        <td style="color:var(--muted);">{{ loop.index }}</td>
-                        <td style="font-weight:600;">{{ sub.user.name }}</td>
-                        <td style="color:var(--muted);">{{ sub.user.email }}</td>
-                        <td>
-                <span class="badge badge-{{ sub.plan }}">
-                  {{ '⭐' if sub.plan == 'premium' else '👨‍👩‍👧' if sub.plan == 'family' else '🆓' }}
-                  {{ sub.plan | title }}
-                </span>
-                        </td>
-                        <td><span class="badge badge-{{ sub.status }}">{{ sub.status | title }}</span></td>
-                        <td>{{ sub.created_at.strftime('%d %b %Y') }}</td>
-                        <td>{{ sub.expires_at.strftime('%d %b %Y') if sub.expires_at else '—' }}</td>
+                    <div style="font-size:11px;color:var(--muted);">{{ u.email }} · {{ u.plan | title }} · Expires {{ u.expires_at | safe_strftime("%d %b %Y") if u.expires_at else '—'   }}</td>
                         <td style="font-family:monospace;">
                             ₹{{ 199 if sub.plan == 'premium' else 349 if sub.plan == 'family' else 0 }}/mo
                         </td>

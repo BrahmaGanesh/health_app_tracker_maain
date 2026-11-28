@@ -9,11 +9,8 @@ from flask import (
 )
 from flask_login import login_required, current_user
 from datetime import datetime, date, timedelta
-from sqlalchemy import func
 
-# from app import db
-from extensions import db
-from models import HealthMetric
+from models import HealthMetric, UserHealthProfile
 
 tracker_bp = Blueprint("tracker", __name__)
 
@@ -21,17 +18,19 @@ tracker_bp = Blueprint("tracker", __name__)
 # ── HELPER: get readings for chart ───────────────────────────
 def get_metric_history(user_id, metric_type, days=30):
     since = datetime.utcnow() - timedelta(days=days)
-    return HealthMetric.query.filter(
-        HealthMetric.user_id    == user_id,
-        HealthMetric.metric_type == metric_type,
-        HealthMetric.recorded_at >= since
-    ).order_by(HealthMetric.recorded_at.asc()).all()
+    return HealthMetric.get_all(
+        filters={"user_id": user_id, "metric_type": metric_type, "recorded_at_gte": since},
+        order_by="recorded_at"
+    )
 
 
 def get_latest(user_id, metric_type):
-    return HealthMetric.query.filter_by(
-        user_id=user_id, metric_type=metric_type
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    result = HealthMetric.get_all(
+        filters={"user_id": user_id, "metric_type": metric_type},
+        order_by="-recorded_at",
+        limit=1
+    )
+    return result[0] if result else None
 
 
 # ============================================================
@@ -53,81 +52,59 @@ def weight():
             if not (20 <= w <= 300):
                 raise ValueError
         except (ValueError, TypeError):
-            flash("Please enter a valid weight between 20–300 kg.", "danger")
+            flash("Please enter a valid weight between 20 and 300 kg.", "danger")
             return redirect(url_for("tracker.weight"))
 
-        # Save metric
-        m = HealthMetric(
+        metric = HealthMetric(
             user_id     = user.id,
             metric_type = "weight",
-            value1     = w,
+            value1      = w,
             unit        = "kg",
             notes       = notes or None,
             source      = "manual"
         )
-        db.session.add(m)
-
-        # Update health profile
-        if user.health_profile:
-            user.health_profile.current_weight_kg = w
-
-        db.session.commit()
-        flash(f"Weight {w}kg logged successfully.", "success")
+        metric.save()
+        flash(f"Weight {w} kg logged.", "success")
         return redirect(url_for("tracker.weight"))
 
-    # ── Data for page ─────────────────────────────────────────
-    latest  = get_latest(user.id, "weight")
-    history = get_metric_history(user.id, "weight", days=90)
+    # Get history
+    history = get_metric_history(user.id, "weight", days=30)
 
-    chart_data = [
-        {"day": r.recorded_at.strftime("%d %b"), "weight": r.value1}
-        for r in history
-    ]
-
-    # Stats
-    goals          = user.goals
-    target_weight  = goals.target_weight_kg if goals else None
-    start_weight   = goals.start_weight_kg  if goals else None
-    current_weight = latest.value1         if latest else None
-
-    lost_so_far = to_go = progress_pct = None
-    if start_weight and current_weight and target_weight:
-        lost_so_far  = round(start_weight - current_weight, 1)
-        to_go        = round(current_weight - target_weight, 1)
-        total_needed = start_weight - target_weight
-        if total_needed > 0:
-            progress_pct = max(0, min(100, int((start_weight - current_weight) / total_needed * 100)))
-
-    # BMI
-    bmi = user.bmi
+    # Calculate stats
+    weights = [h.value1 for h in history if h.value1 is not None]
+    avg_weight = round(sum(weights) / len(weights), 1) if weights else None
+    min_weight = min(weights) if weights else None
+    max_weight = max(weights) if weights else None
 
     # 7-day change
-    week_ago = HealthMetric.query.filter(
-        HealthMetric.user_id     == user.id,
-        HealthMetric.metric_type == "weight",
-        HealthMetric.recorded_at <= datetime.utcnow() - timedelta(days=6)
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    weight_7d_history = [h.value1 for h in history if h.value1 is not None]
+    if len(weight_7d_history) >= 2:
+        weight_7d_change = round(weight_7d_history[0] - weight_7d_history[-1], 1)
+    else:
+        weight_7d_change = None
 
-    weight_7d_change = None
-    if latest and week_ago:
-        weight_7d_change = round(latest.value1 - week_ago.value1, 1)
+    # BMI
+    bmi = None
+    profile = user.health_profile
+    if profile and profile.height_cm and w:
+        height_m = profile.height_cm / 100
+        bmi = round(w / (height_m ** 2), 1)
+
+    # Chart data for JavaScript
+    chart_data = [{"date": h.recorded_at.strftime('%Y-%m-%d') if h.recorded_at else '', "weight": h.value1} for h in history if h.value1 is not None and h.recorded_at]
+    target_weight = user.goals.target_weight_kg if user.goals else None
 
     return render_template(
         "tracker/weight.html",
-        latest          = latest,
-        chart_data      = chart_data,
-        history         = history[-20:][::-1],
-        current_weight  = current_weight,
-        target_weight   = target_weight,
-        start_weight    = start_weight,
-        lost_so_far     = lost_so_far,
-        to_go           = to_go,
-        progress_pct    = progress_pct or 0,
-        bmi             = bmi,
-        bmi_status      = user.bmi_status,
-        weight_7d_change= weight_7d_change,
-        today           = today,
-        goals           = goals,
+        history=history,
+        avg_weight=avg_weight,
+        min_weight=min_weight,
+        max_weight=max_weight,
+        weight_7d_change=weight_7d_change,
+        bmi=bmi,
+        today=today,
+        chart_data=chart_data,
+        target_weight=target_weight,
     )
 
 
@@ -143,74 +120,77 @@ def water():
 
     if request.method == "POST":
         amount_str = request.form.get("amount", "")
+        notes      = request.form.get("notes", "")
+
         try:
             amount = float(amount_str)
-            if not (0.05 <= amount <= 5.0):
+            if not (0 < amount <= 10):
                 raise ValueError
         except (ValueError, TypeError):
-            flash("Please enter a valid amount between 0.05 and 5.0 litres.", "danger")
+            flash("Please enter a valid amount (0.1 - 10 L).", "danger")
             return redirect(url_for("tracker.water"))
 
-        m = HealthMetric(
+        metric = HealthMetric(
             user_id     = user.id,
             metric_type = "water",
-            value1     = amount,
-            unit        = "litres",
+            value1      = amount,
+            unit        = "L",
+            notes       = notes or None,
             source      = "manual"
         )
-        db.session.add(m)
-        db.session.commit()
-        flash(f"✅ {amount}L water logged!", "success")
+        metric.save()
+        flash(f"Water intake {amount} L logged.", "success")
         return redirect(url_for("tracker.water"))
 
-    # ── Today's total ─────────────────────────────────────────
-    today_total = HealthMetric.query.filter(
-        HealthMetric.user_id     == user.id,
-        HealthMetric.metric_type == "water",
-        func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
+    # Today's total
+    today_water_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "water", "recorded_at_date": today}
+    )
+    today_total = sum(h.value1 for h in today_water_list if h.value1)
 
-    today_total = round(today_total, 2)
-    target      = user.goals.target_water_litres if user.goals else 2.5
-    pct         = min(100, int((today_total / target) * 100)) if target else 0
+    # 7-day history
+    history = get_metric_history(user.id, "water", days=7)
 
-    # Glasses (250ml each = 0.25L)
-    glasses_done   = int(today_total / 0.25)
-    glasses_target = int(target / 0.25)
+    # Target
+    profile = user.health_profile
+    target = 2.5  # default
+    if profile:
+        goals = user.goals
+        if goals and goals.target_water_litres:
+            target = goals.target_water_litres
 
-    # ── 7-day history ─────────────────────────────────────────
+    water_pct = min(100, int((today_total / target) * 100)) if target else 0
+
+    # Glasses calculation (250ml per glass)
+    glasses_target = 10  # default 10 glasses = 2.5L
+    glasses_done = int(today_total * 4)  # 4 glasses per litre
+
+    # 7-day week data for chart
     week_data = []
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
-        total = HealthMetric.query.filter(
-            HealthMetric.user_id     == user.id,
-            HealthMetric.metric_type == "water",
-            func.date(HealthMetric.recorded_at) == d
-        ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
-        week_data.append({"day": d.strftime("%a"), "litres": round(total, 2)})
-
-    # ── Today's log entries ───────────────────────────────────
-    today_logs = HealthMetric.query.filter(
-        HealthMetric.user_id     == user.id,
-        HealthMetric.metric_type == "water",
-        func.date(HealthMetric.recorded_at) == today
-    ).order_by(HealthMetric.recorded_at.desc()).all()
+        day_total = sum(h.value1 for h in history if h.recorded_at and h.recorded_at.date() == d)
+        week_data.append({
+            "day": d.strftime('%a'),
+            "date": str(d),
+            "litres": round(day_total, 2) if day_total else 0
+        })
 
     return render_template(
         "tracker/water.html",
-        today_total    = today_total,
-        target         = target,
-        pct            = pct,
-        glasses_done   = glasses_done,
-        glasses_target = glasses_target,
-        week_data      = week_data,
-        today_logs     = today_logs,
-        today          = today,
+        today_total=today_total,
+        history=history,
+        target=target,
+        pct=water_pct,
+        today=today,
+        glasses_target=glasses_target,
+        glasses_done=glasses_done,
+        week_data=week_data,
     )
 
 
 # ============================================================
-# SUGAR TRACKER
+# BLOOD SUGAR TRACKER
 # ============================================================
 
 @tracker_bp.route("/sugar", methods=["GET", "POST"])
@@ -220,151 +200,162 @@ def sugar():
     today = date.today()
 
     if request.method == "POST":
-        fasting_str   = request.form.get("fasting", "")
-        postmeal_str  = request.form.get("post_meal", "")
-        notes         = request.form.get("notes", "")
+        fasting_str  = request.form.get("fasting", "")
+        post_meal_str = request.form.get("post_meal", "")
+        notes        = request.form.get("notes", "")
 
-        errors  = []
+        errors = []
         fasting = post_meal = None
 
         if fasting_str:
             try:
                 fasting = float(fasting_str)
-                if not (20 <= fasting <= 600):
-                    errors.append("Fasting sugar must be between 20–600 mg/dL.")
+                if not (30 <= fasting <= 500):
+                    errors.append("Fasting sugar must be between 30 and 500 mg/dL.")
             except (ValueError, TypeError):
-                errors.append("Invalid fasting sugar value.")
+                errors.append("Invalid fasting value.")
 
-        if postmeal_str:
+        if post_meal_str:
             try:
-                post_meal = float(postmeal_str)
-                if not (20 <= post_meal <= 800):
-                    errors.append("Post-meal sugar must be between 20–800 mg/dL.")
+                post_meal = float(post_meal_str)
+                if not (30 <= post_meal <= 500):
+                    errors.append("Post-meal sugar must be between 30 and 500 mg/dL.")
             except (ValueError, TypeError):
-                errors.append("Invalid post-meal sugar value.")
-
-        if not fasting and not post_meal:
-            errors.append("Please enter at least one sugar reading.")
+                errors.append("Invalid post-meal value.")
 
         if errors:
             for e in errors:
                 flash(e, "danger")
             return redirect(url_for("tracker.sugar"))
 
-        m = HealthMetric(
-            user_id     = user.id,
-            metric_type = "sugar",
-            value1     = fasting,
-            value2     = post_meal,
-            unit        = "mg_dL",
-            notes       = notes or None,
-            source      = "manual"
-        )
-        db.session.add(m)
-        db.session.commit()
-
-        # Auto-alert if very high
-        if fasting and fasting >= 200:
-            from models import Alert
-            alert = Alert(
-                user_id    = user.id,
-                alert_type = "warning",
-                category   = "sugar",
-                title      = "⚠️ High Fasting Sugar",
-                message    = f"Your fasting sugar of {int(fasting)} mg/dL is significantly elevated. Consult your doctor.",
-                trigger_value = fasting
+        if fasting is not None:
+            metric = HealthMetric(
+                user_id     = user.id,
+                metric_type = "sugar",
+                value1      = fasting,
+                unit        = "mg/dL",
+                notes       = notes or None,
+                source      = "manual"
             )
-            db.session.add(alert)
-            db.session.commit()
+            metric.save()
 
-        flash("Blood sugar reading saved.", "success")
+        if post_meal is not None:
+            metric = HealthMetric(
+                user_id     = user.id,
+                metric_type = "sugar",
+                value1      = post_meal,
+                value2      = fasting,
+                unit        = "mg/dL",
+                notes       = notes or None,
+                source      = "manual"
+            )
+            metric.save()
+
+        flash("Blood sugar logged.", "success")
         return redirect(url_for("tracker.sugar"))
 
-    # ── Latest readings ───────────────────────────────────────
-    latest  = get_latest(user.id, "sugar")
+    # History
     history = get_metric_history(user.id, "sugar", days=30)
 
-    chart_data = [
-        {
-            "day":      r.recorded_at.strftime("%d %b"),
-            "fasting":  r.value1,
-            "postmeal": r.value2
-        }
-        for r in history
-    ]
+    # Latest fasting
+    fasting_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "sugar", "value2_is_null": True},
+        order_by="-recorded_at",
+        limit=5
+    )
+    latest_fasting = fasting_list[0] if fasting_list else None
 
-    # Status
-    latest_status = "No Reading"
-    if latest and latest.value1:
-        f = latest.value1
-        if f < 100:       latest_status = "Normal"
-        elif f < 126:     latest_status = "Pre-Diabetes"
-        else:             latest_status = "Diabetes Range"
+    # Chart data for JavaScript
+    chart_data = [{"date": h.recorded_at.strftime('%Y-%m-%d') if h.recorded_at else '', "fasting": h.value1, "post_meal": h.value2} for h in history if (h.value1 is not None or h.value2 is not None) and h.recorded_at]
 
     return render_template(
         "tracker/sugar.html",
-        latest        = latest,
-        latest_status = latest_status,
-        chart_data    = chart_data,
-        history       = history[-20:][::-1],
-        today         = today,
+        history=history,
+        latest_fasting=latest_fasting,
+        today=today,
+        chart_data=chart_data,
     )
 
 
 # ============================================================
-# DELETE ANY METRIC
+# STEPS TRACKER
 # ============================================================
 
-@tracker_bp.route("/delete/<int:metric_id>")
+@tracker_bp.route("/steps", methods=["GET", "POST"])
 @login_required
-def delete_metric(metric_id):
-    metric = HealthMetric.query.filter_by(
-        id=metric_id, user_id=current_user.id
-    ).first_or_404()
+def steps():
+    user  = current_user
+    today = date.today()
 
-    metric_type = metric.metric_type
-    db.session.delete(metric)
-    db.session.commit()
-    flash("Entry deleted.", "info")
+    if request.method == "POST":
+        steps_str = request.form.get("steps", "")
+        notes     = request.form.get("notes", "")
 
-    redirect_map = {
-        "weight": "tracker.weight",
-        "water":  "tracker.water",
-        "sugar":  "tracker.sugar",
-        "bp":     "bp.tracker",
-    }
-    return redirect(url_for(redirect_map.get(metric_type, "main.dashboard")))
+        try:
+            steps = int(steps_str)
+            if not (0 <= steps <= 100000):
+                raise ValueError
+        except (ValueError, TypeError):
+            flash("Please enter a valid step count (0 - 100,000).", "danger")
+            return redirect(url_for("tracker.steps"))
 
+        # Calculate distance and calories
+        profile = user.health_profile
+        h = profile.height_cm if profile and profile.height_cm else 170
+        w = profile.current_weight_kg if profile and profile.current_weight_kg else 70
+        stride_m = (h * 0.414) / 100
+        distance_km = round(steps * stride_m / 1000, 2)
+        calories = int((steps / 100) * (3.5 * w * 3.5 / 200))
 
-# ============================================================
-# QUICK LOG (AJAX — used from dashboard)
-# ============================================================
-
-@tracker_bp.route("/quick-log", methods=["POST"])
-@login_required
-def quick_log():
-    """Quick log any metric via AJAX from the dashboard."""
-    metric_type = request.json.get("type")
-    value1     = request.json.get("value1")
-    value2     = request.json.get("value2")
-    value3     = request.json.get("value3")
-
-    allowed = ["weight", "water", "steps", "mood"]
-    if metric_type not in allowed:
-        return jsonify({"success": False, "error": "Invalid metric type"}), 400
-
-    try:
-        m = HealthMetric(
-            user_id     = current_user.id,
-            metric_type = metric_type,
-            value1     = float(value1) if value1 else None,
-            value2     = float(value2) if value2 else None,
-            value3     = float(value3) if value3 else None,
+        metric = HealthMetric(
+            user_id     = user.id,
+            metric_type = "steps",
+            value1      = steps,
+            value2      = distance_km,
+            value3      = calories,
+            unit        = "steps",
+            notes       = notes or None,
             source      = "manual"
         )
-        db.session.add(m)
-        db.session.commit()
-        return jsonify({"success": True})
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"success": False, "error": str(e)}), 500
+        metric.save()
+        flash(f"{steps} steps logged ({distance_km} km, ~{calories} cal).", "success")
+        return redirect(url_for("tracker.steps"))
+
+    # Today's total
+    today_steps_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "steps", "recorded_at_date": today}
+    )
+    today_steps = sum(h.value1 for h in today_steps_list if h.value1)
+
+    # 7-day history
+    history = get_metric_history(user.id, "steps", days=7)
+
+    # Target
+    goals = user.goals
+    target = goals.target_steps if goals and goals.target_steps else 8000
+    steps_pct = min(100, int((today_steps / target) * 100)) if target else 0
+
+    return render_template(
+        "tracker/steps.html",
+        today_steps=today_steps,
+        history=history,
+        target=target,
+        steps_pct=steps_pct,
+        today=today,
+    )
+
+
+# ============================================================
+# DELETE METRIC
+# ============================================================
+
+@tracker_bp.route("/delete/<metric_id>")
+@login_required
+def delete_metric(metric_id):
+    metric = HealthMetric.get_by_id_or_404(metric_id)
+    if metric.user_id != current_user.id:
+        from flask import abort
+        abort(404)
+    metric.delete()
+    flash("Entry deleted.", "info")
+    return redirect(request.referrer or url_for("tracker.weight"))

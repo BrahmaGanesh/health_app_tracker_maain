@@ -2,7 +2,6 @@
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
 from datetime import date, timedelta, datetime
-from extensions import db
 from models import SleepLog
 
 sleep_bp = Blueprint("sleep", __name__)
@@ -33,10 +32,10 @@ def tracker():
             except Exception:
                 pass
 
-        sl = SleepLog.query.filter_by(user_id=user.id, log_date=today).first()
+        sl = (SleepLog.get_all(filters={"user_id": user.id, "log_date": today}, limit=1) or [None])[0]
         if not sl:
             sl = SleepLog(user_id=user.id, log_date=today)
-            db.session.add(sl)
+            sl.save()
         sl.sleep_time     = sleep_time
         sl.wake_time      = wake_time
         sl.duration_hours = duration
@@ -44,17 +43,17 @@ def tracker():
         sl.interruptions  = int(interruptions)
         sl.mood_on_wake   = mood_on_wake
         sl.notes          = notes
-        db.session.commit()
+        # db.session.commit()  # Firestore auto-commits
         flash(f"😴 Sleep logged — {duration}hrs, quality: {sl.quality_label}", "success")
         return redirect(url_for("sleep.tracker"))
 
     # History
-    logs_14 = SleepLog.query.filter(
-        SleepLog.user_id  == user.id,
-        SleepLog.log_date >= today - timedelta(days=13)
-    ).order_by(SleepLog.log_date.desc()).all()
+    logs_14 = SleepLog.get_all(
+        filters={"user_id": user.id, "log_date_gte": today - timedelta(days=13)},
+        order_by="-log_date"
+    )
 
-    today_log  = SleepLog.query.filter_by(user_id=user.id, log_date=today).first()
+    today_log  = (SleepLog.get_all(filters={"user_id": user.id, "log_date": today}, limit=1) or [None])[0]
     target_hrs = user.goals.target_sleep_hours if user.goals else 7.5
 
     hrs_list  = [l.duration_hours for l in logs_14 if l.duration_hours]
@@ -75,9 +74,11 @@ def tracker():
 @sleep_bp.route("/delete/<int:log_id>")
 @login_required
 def delete_log(log_id):
-    log = SleepLog.query.filter_by(id=log_id, user_id=current_user.id).first_or_404()
-    db.session.delete(log)
-    db.session.commit()
+    log = SleepLog.get_by_id_or_404(log_id)
+    if log.user_id != current_user.id:
+        from flask import abort
+        abort(403)
+    log.delete()
+    # db.session.commit()  # Firestore auto-commits
     flash("Sleep log deleted.", "info")
     return redirect(url_for("sleep.tracker"))
-

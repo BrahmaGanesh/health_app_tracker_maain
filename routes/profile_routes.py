@@ -10,11 +10,9 @@ from flask import (
 from flask_login import login_required, current_user
 from datetime import date, datetime
 
-# from app import db
-from extensions import db
 from models import (
     User, UserHealthProfile, UserGoal,
-    UserCondition, HealthCondition
+    UserCondition, HealthCondition, HealthMetric
 )
 
 profile_bp = Blueprint("profile", __name__)
@@ -64,24 +62,27 @@ def onboarding_step1():
 
         # Save
         current_user.name = name
+        current_user.save()
+
         profile = current_user.health_profile
         if not profile:
+            from models import UserHealthProfile
             profile = UserHealthProfile(user_id=current_user.id)
-            db.session.add(profile)
+            profile.save()
 
         profile.gender        = gender
         profile.date_of_birth = dob
         profile.onboarding_step = 2
-        db.session.commit()
+        profile.save()
 
         return redirect(url_for("profile.onboarding_step2"))
 
     return render_template(
         "auth/onboarding/step1.html",
         name=current_user.name,
-        gender=current_user.health_profile.gender if current_user.health_profile else "",
-        dob=current_user.health_profile.date_of_birth.strftime("%Y-%m-%d")
-             if current_user.health_profile and current_user.health_profile.date_of_birth else ""
+        gender=current_user.health_profile.get("gender") if current_user.health_profile else "",
+        dob=current_user.health_profile.get("date_of_birth").strftime("%Y-%m-%d")
+             if current_user.health_profile and current_user.health_profile.get("date_of_birth") else ""
     )
 
 
@@ -128,15 +129,18 @@ def onboarding_step2():
         profile.height_cm         = height
         profile.current_weight_kg = weight
         profile.onboarding_step   = 3
+        profile.save()
 
         # Set start weight in goals
         goals = current_user.goals
         if not goals:
+            from models import UserGoal
             goals = UserGoal(user_id=current_user.id)
-            db.session.add(goals)
+            goals.save()
         goals.start_weight_kg = weight
+        goals.save()
 
-        db.session.commit()
+        # db.session.commit()  # Firestore auto-commits
         return redirect(url_for("profile.onboarding_step3"))
 
     p = current_user.health_profile
@@ -156,35 +160,36 @@ def onboarding_step2():
 def onboarding_step3():
     """Screen 3: Select all health conditions."""
 
-    all_conditions = HealthCondition.query.order_by(
-        HealthCondition.category, HealthCondition.name
-    ).all()
+    all_conditions = HealthCondition.get_all(order_by="category")
 
     if request.method == "POST":
         selected_ids = request.form.getlist("conditions")
 
         # Remove existing conditions
-        UserCondition.query.filter_by(user_id=current_user.id).delete()
+        user_conditions = UserCondition.get_by_field("user_id", current_user.id)
+        for uc in user_conditions:
+            uc.delete()
 
         # Add selected
         for cid in selected_ids:
             try:
-                cond = HealthCondition.query.get(int(cid))
+                cond = HealthCondition.get_by_id(int(cid))
                 if cond:
                     uc = UserCondition(
                         user_id=current_user.id,
                         condition_id=cond.id
                     )
-                    db.session.add(uc)
+                    uc.save()
             except (ValueError, TypeError):
                 continue
 
         current_user.health_profile.onboarding_step = 4
-        db.session.commit()
+        current_user.health_profile.save()
+        # db.session.commit()  # Firestore auto-commits
         return redirect(url_for("profile.onboarding_step4"))
 
     # Pre-select existing
-    existing_ids = [uc.condition_id for uc in current_user.conditions]
+    existing_ids = [uc.condition_id for uc in UserCondition.get_by_field("user_id", current_user.id)]
 
     return render_template(
         "auth/onboarding/step3.html",
@@ -230,17 +235,20 @@ def onboarding_step4():
 
         goals = current_user.goals
         if not goals:
+            from models import UserGoal
             goals = UserGoal(user_id=current_user.id)
-            db.session.add(goals)
+            goals.save()
 
         if target_weight:
             goals.target_weight_kg = target_weight
         goals.goal_speed    = goal_speed
         goals.primary_goal  = primary_goal
         goals.goal_start_date = date.today()
+        goals.save()
 
         current_user.health_profile.onboarding_step = 5
-        db.session.commit()
+        current_user.health_profile.save()
+        # db.session.commit()  # Firestore auto-commits
         return redirect(url_for("profile.onboarding_step5"))
 
     g = current_user.goals
@@ -290,10 +298,12 @@ def onboarding_step5():
         profile.diet_preference  = diet_pref
         profile.activity_level   = activity_level
         profile.onboarding_step  = 5
+        profile.save()
 
         # Mark onboarding complete
         current_user.onboarding_done = True
-        db.session.commit()
+        current_user.save()
+        # db.session.commit()  # Firestore auto-commits
 
         flash(f"Welcome to HealthTrack, {current_user.name}! Your personalised health plan is ready. 🎉", "success")
         return redirect(url_for("main.dashboard"))
@@ -321,23 +331,26 @@ def index():
     today = date.today()
 
     # Latest readings
-    from models import HealthMetric
-    latest_bp = HealthMetric.query.filter_by(
-        user_id=user.id, metric_type="bp"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    latest_bp = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "bp"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest_bp = latest_bp[0] if latest_bp else None
 
-    latest_weight = HealthMetric.query.filter_by(
-        user_id=user.id, metric_type="weight"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    latest_weight = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "weight"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest_weight = latest_weight[0] if latest_weight else None
 
     # Counts
     from models import Favorite, MealPlan
-    favorites_count = Favorite.query.filter_by(user_id=user.id).count()
-    plans_count     = MealPlan.query.filter_by(user_id=user.id).count()
+    favorites_count = len(Favorite.get_by_field("user_id", user.id))
+    plans_count     = len(MealPlan.get_by_field("user_id", user.id))
 
-    all_conditions = HealthCondition.query.order_by(
-        HealthCondition.category, HealthCondition.name
-    ).all()
+    all_conditions = HealthCondition.get_all(order_by="category")
 
     return render_template(
         "profile/index.html",
@@ -370,11 +383,14 @@ def edit():
 
             if name and len(name) >= 2:
                 current_user.name = name
+                current_user.save()
             if gender:
                 current_user.health_profile.gender = gender
+                current_user.health_profile.save()
             if dob_str:
                 try:
                     current_user.health_profile.date_of_birth = datetime.strptime(dob_str, "%Y-%m-%d").date()
+                    current_user.health_profile.save()
                 except ValueError:
                     flash("Invalid date format.", "danger")
                     return redirect(url_for("profile.edit"))
@@ -385,9 +401,11 @@ def edit():
             try:
                 if height_str:
                     current_user.health_profile.height_cm = float(height_str)
+                    current_user.health_profile.save()
                 if weight_str:
                     new_weight = float(weight_str)
                     current_user.health_profile.current_weight_kg = new_weight
+                    current_user.health_profile.save()
                     # Log weight entry
                     from models import HealthMetric
                     wm = HealthMetric(
@@ -396,7 +414,7 @@ def edit():
                         value1=new_weight,
                         unit="kg"
                     )
-                    db.session.add(wm)
+                    wm.save()
             except (ValueError, TypeError):
                 flash("Invalid measurement values.", "danger")
                 return redirect(url_for("profile.edit"))
@@ -406,8 +424,10 @@ def edit():
             activity_level = request.form.get("activity_level", "")
             if diet_pref:
                 current_user.health_profile.diet_preference = diet_pref
+                current_user.health_profile.save()
             if activity_level:
                 current_user.health_profile.activity_level = activity_level
+                current_user.health_profile.save()
 
         elif section == "goals":
             target_weight = request.form.get("target_weight", "")
@@ -417,8 +437,9 @@ def edit():
 
             goals = current_user.goals
             if not goals:
+                from models import UserGoal
                 goals = UserGoal(user_id=current_user.id)
-                db.session.add(goals)
+                goals.save()
 
             try:
                 if target_weight: goals.target_weight_kg   = float(target_weight)
@@ -431,26 +452,27 @@ def edit():
 
         elif section == "conditions":
             selected_ids = request.form.getlist("conditions")
-            UserCondition.query.filter_by(user_id=current_user.id).delete()
+            user_conditions = UserCondition.get_by_field("user_id", current_user.id)
+            for uc in user_conditions:
+                uc.delete()
             for cid in selected_ids:
                 try:
-                    cond = HealthCondition.query.get(int(cid))
+                    cond = HealthCondition.get_by_id(int(cid))
                     if cond:
-                        db.session.add(UserCondition(
+                        uc = UserCondition(
                             user_id=current_user.id,
                             condition_id=cond.id
-                        ))
+                        )
+                        uc.save()
                 except (ValueError, TypeError):
                     continue
 
-        db.session.commit()
+        # db.session.commit()  # Firestore auto-commits
         flash("Profile updated successfully.", "success")
         return redirect(url_for("profile.index"))
 
-    all_conditions = HealthCondition.query.order_by(
-        HealthCondition.category, HealthCondition.name
-    ).all()
-    existing_ids = [uc.condition_id for uc in current_user.conditions]
+    all_conditions = HealthCondition.get_all(order_by="category")
+    existing_ids = [uc.condition_id for uc in UserCondition.get_by_field("user_id", current_user.id)]
 
     return render_template(
         "profile/edit.html",
@@ -490,8 +512,8 @@ def add_medicine():
         with_food=with_food,
         condition=condition
     )
-    db.session.add(med)
-    db.session.commit()
+    med.save()
+    # db.session.commit()  # Firestore auto-commits
     flash(f"Medicine '{name}' added successfully.", "success")
     return redirect(url_for("profile.index"))
 
@@ -500,13 +522,16 @@ def add_medicine():
 # PROFILE — DELETE MEDICINE
 # ============================================================
 
-@profile_bp.route("/medicine/delete/<int:med_id>")
+@profile_bp.route("/medicine/delete/<med_id>")
 @login_required
 def delete_medicine(med_id):
     from models import Medicine
-    med = Medicine.query.filter_by(id=med_id, user_id=current_user.id).first_or_404()
-    db.session.delete(med)
-    db.session.commit()
+    med = Medicine.get_by_id_or_404(med_id)
+    if med.user_id != current_user.id:
+        from flask import abort
+        abort(404)
+    med.delete()
+    # db.session.commit()  # Firestore auto-commits
     flash("Medicine removed.", "info")
     return redirect(url_for("profile.index"))
 
@@ -515,21 +540,23 @@ def delete_medicine(med_id):
 # PROFILE — LOG MEDICINE TAKEN
 # ============================================================
 
-@profile_bp.route("/medicine/log/<int:med_id>", methods=["POST"])
+@profile_bp.route("/medicine/log/<med_id>", methods=["POST"])
 @login_required
 def log_medicine(med_id):
     from models import Medicine, MedicineLog
 
-    med = Medicine.query.filter_by(id=med_id, user_id=current_user.id).first_or_404()
+    med = Medicine.get_by_id_or_404(med_id)
+    if med.user_id != current_user.id:
+        from flask import abort
+        abort(404)
     today = date.today()
 
-    existing = MedicineLog.query.filter_by(
-        medicine_id=med.id, log_date=today
-    ).first()
+    existing = MedicineLog.get_one(filters={"medicine_id": med.id, "log_date": today})
 
     if existing:
         existing.taken    = not existing.taken
         existing.logged_at = datetime.utcnow()
+        existing.save()
     else:
         log = MedicineLog(
             medicine_id=med.id,
@@ -537,9 +564,9 @@ def log_medicine(med_id):
             taken=True,
             log_date=today
         )
-        db.session.add(log)
+        log.save()
 
-    db.session.commit()
+    # db.session.commit()  # Firestore auto-commits
     return jsonify({"success": True, "taken": existing.taken if existing else True})
 
 

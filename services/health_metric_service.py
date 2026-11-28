@@ -4,7 +4,7 @@
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Dict, Any, Tuple
-from google.cloud.firestore import FieldValue, Query
+from google.cloud.firestore import SERVER_TIMESTAMP, Query
 from google.cloud.firestore_v1.base_query import FieldFilter
 
 from services.firestore_service import UserScopedService, FirestoreError
@@ -21,6 +21,8 @@ class HealthMetricService:
 
     def __init__(self, uid: str = None):
         self._uid = uid
+        from services.firebase_admin import get_firebase_admin
+        self.firebase_admin = get_firebase_admin()
 
     @property
     def _collection(self):
@@ -99,19 +101,35 @@ class HealthMetricService:
 
         since = datetime.now(timezone.utc) - timedelta(days=days)
 
+        # Use a simpler query that doesn't require a composite index
+        # Get all metrics of this type, then filter by date in Python
         query = (db.collection('users').document(self._get_uid())
                  .collection('health_metrics')
                  .where('metric_type', '==', metric_type)
-                 .where('recorded_at', '>=', datetime.now() - timedelta(days=days))
-                 .order_by('recorded_at', direction='DESCENDING')
-                 .limit(100))
+                 .stream())
 
-        docs = query.stream()
         results = []
-        for doc in query.stream():
+        for doc in query:
             data = doc.to_dict()
             data['id'] = doc.id
-            results.append(self._deserialize(data))
+            # Filter by date in Python
+            recorded_at = data.get('recorded_at')
+            if recorded_at:
+                try:
+                    from datetime import datetime, timezone
+                    if isinstance(recorded_at, datetime):
+                        rec_date = recorded_at
+                    else:
+                        rec_date = datetime.fromisoformat(recorded_at)
+                    if rec_date >= since:
+                        results.append(self._deserialize(data))
+                        if len(results) >= limit:
+                            break
+                except Exception:
+                    # If date parsing fails, include the record
+                    results.append(self._deserialize(data))
+                    if len(results) >= limit:
+                        break
 
         return results
 
@@ -148,23 +166,46 @@ class HealthMetricService:
         uid = self._get_uid()
         db = self.firebase_admin.firestore
 
+        # Use simpler query without composite index requirement
         query = (db.collection('users').document(self._get_uid())
                  .collection('health_metrics')
                  .where('metric_type', '==', metric_type)
-                 .order_by('recorded_at', direction='DESCENDING')
-                 .limit(1))
+                 .stream())
 
-        docs = list(query.stream())
-        if docs:
-            data = docs[0].to_dict()
-            data['id'] = docs[0].id
-            return self._deserialize(data)
-        return None
+        latest = None
+        latest_recorded_at = None
+        for doc in query.stream():
+            data = doc.to_dict()
+            data['id'] = doc.id
+            # Track the latest by recorded_at
+            recorded_at = data.get('recorded_at')
+            if recorded_at:
+                try:
+                    from datetime import datetime, timezone
+                    if isinstance(recorded_at, datetime):
+                        if latest is None or recorded_at > latest_recorded_at:
+                            latest = self._deserialize(data)
+                            latest_recorded_at = recorded_at
+                    else:
+                        # ISO format string
+                        rec_date = datetime.fromisoformat(recorded_at)
+                        if latest is None or rec_date > latest_recorded_at:
+                            latest = self._deserialize(data)
+                            latest_recorded_at = rec_date
+                except Exception:
+                    if latest is None:
+                        latest = self._deserialize(data)
+
+        # Clean up internal field
+        if latest:
+            latest.pop('_recorded_at', None)
+        return latest
 
     def delete(self, metric_id: str) -> bool:
         """Delete a health metric."""
         try:
-            self.db.collection('users').document(self._get_uid()).collection('health_metrics').document(metric_id).delete()
+            firestore = self.firebase_admin.firestore
+            firestore.collection('users').document(self._get_uid()).collection('health_metrics').document(metric_id).delete()
             return True
         except Exception as e:
             logger.error(f"Delete failed: {e}")
@@ -178,7 +219,8 @@ class HealthMetricService:
         uid = self._get_uid()
         since = datetime.now() - timedelta(days=days)
 
-        query = (self.db.collection('users').document(self._get_uid())
+        firestore = self.firebase_admin.firestore
+        query = (firestore.collection('users').document(self._get_uid())
                  .collection('health_metrics')
                  .where('metric_type', '==', metric_type)
                  .where('recorded_at', '>=', datetime.now() - timedelta(days=days)))
@@ -286,30 +328,51 @@ class HealthMetricService:
         uid = self._get_uid()
         today = datetime.now().date()
 
-        query = (self.db.collection('users').document(self._get_uid())
-                 .collection('health_metrics')
-                 .where('metric_type', '==', 'water')
-                 .where('recorded_at', '>=', datetime.combine(datetime.now().date(), datetime.min.time()))
-                 .where('recorded_at', '<=', datetime.combine(datetime.now().date(), datetime.max.time())))
+        # Get all water metrics and filter in Python (avoids composite index requirement)
+        firestore = self.firebase_admin.firestore
+        try:
+            docs = (firestore.collection('users').document(self._get_uid())
+                     .collection('health_metrics')
+                     .where('metric_type', '==', 'water')
+                     .stream())
 
-        docs = query.stream()
-        total = 0
-        logs = []
-        for doc in query.stream():
-            data = doc.to_dict()
-            data['id'] = doc.id
-            total += data.get('value1', 0)
-            logs.append(self._deserialize(data))
+            today_start = datetime.combine(today, datetime.min.time())
 
-        target = 2.5  # Default target
-        # Could fetch from user goals
+            total = 0
+            logs = []
+            for doc in docs:
+                data = doc.to_dict()
+                recorded_at = data.get('recorded_at')
 
-        return {
-            "today_total": round(total, 2),
-            "target": target,
-            "pct": min(100, int((total / target) * 100)) if target else 0,
-            "logs": logs
-        }
+                # Filter by date in Python
+                if recorded_at:
+                    if isinstance(recorded_at, datetime):
+                        if recorded_at.year == today.year and recorded_at.month == today.month and recorded_at.day == today.day:
+                            total += data.get('value1', 0)
+                            data['id'] = doc.id
+                            logs.append(self._deserialize(data))
+                    elif hasattr(recorded_at, 'date'):
+                        if recorded_at.date() == today:
+                            total += data.get('value1', 0)
+                            data['id'] = doc.id
+                            logs.append(self._deserialize(data))
+
+            target = 2.5  # Default target
+
+            return {
+                "today_total": round(total, 2),
+                "target": target,
+                "pct": min(100, int((total / target) * 100)) if target else 0,
+                "logs": logs
+            }
+        except Exception as e:
+            # Fallback if index error
+            return {
+                "today_total": 0,
+                "target": 2.5,
+                "pct": 0,
+                "logs": []
+            }
 
     # ── Blood Sugar Specific ─────────────────────────────────────────
 

@@ -8,14 +8,15 @@ import os
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from flask import Flask, render_template, jsonify, request, g
+from flask import Flask, render_template, jsonify, request, g, current_app
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from config import get_config
 from extensions import (
     bcrypt, login_manager, migrate, mail,
-    cache, cors, jwt, csrf
+    cache, cors, jwt, csrf, db
 )
+from models import User
 
 load_dotenv()
 
@@ -191,7 +192,7 @@ def create_app(config_class=None):
                     }), 401
 
     # --------------------------------------------------------
-    # LOGIN MANAGER (for web templates)
+    # LOGIN MANAGER (Firestore-backed web authentication)
     # --------------------------------------------------------
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Please log in to access this page."
@@ -200,41 +201,32 @@ def create_app(config_class=None):
 
     @login_manager.user_loader
     def load_user(user_id):
-        # For web templates, we use a simple lookup
-        # In production, you'd fetch from Firestore
-        from flask_login import UserMixin
-        class WebUser:
-            def __init__(self, user_id):
-                self.id = user_id
-                self.is_authenticated = True
+        try:
+            from services.firebase_admin import get_firebase_admin
+            firebase_admin = get_firebase_admin()
+            db = firebase_admin.firestore
 
-        return WebUser(user_id)
+            doc = db.collection(User.COLLECTION).document(user_id).get()
 
-    # --------------------------------------------------------
-    # JWT CONFIG (for legacy API compatibility)
-    # --------------------------------------------------------
-    @jwt.user_identity_loader
-    def identity(user):
-        return str(user.id) if hasattr(user, "id") else str(user)
+            if not doc.exists:
+                return None
 
-    @jwt.user_lookup_loader
-    def lookup(_jwt_header, jwt_data):
-        identity = jwt_data["sub"]
-        return {"uid": identity}
+            user_data = doc.to_dict() or {}
 
-    @jwt.unauthorized_loader
-    def unauthorized(reason):
-        return jsonify({
-            "error": "Authorization required",
-            "reason": reason
-        }), 401
+            user_data["id"] = user_id
 
-    @jwt.expired_token_loader
-    def expired_token(_header, _payload):
-        return jsonify({
-            "error": "Token expired",
-            "code": "TOKEN_EXPIRED"
-        }), 401
+            user = User(user_data)
+
+            if not user.is_active:
+                return None
+
+            return user
+
+        except Exception:
+            current_app.logger.exception(
+                "Failed to load Flask-Login user: %s", user_id
+            )
+            return None
 
     # --------------------------------------------------------
     # CSRF FOR API
@@ -368,17 +360,41 @@ def create_app(config_class=None):
     # --------------------------------------------------------
     # TEMPLATE FILTERS
     # --------------------------------------------------------
+    def _parse_datetime(value):
+        """Parse datetime from various formats (datetime, Timestamp, string)."""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value
+        if hasattr(value, 'to_datetime'):  # Firestore Timestamp
+            return value.to_datetime()
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        return None
+
     @app.template_filter("datetime_format")
     def datetime_format(value, fmt="%d %b %Y"):
-        if value is None:
+        dt = _parse_datetime(value)
+        if dt is None:
             return "—"
-        return value.strftime(fmt)
+        return dt.strftime(fmt)
 
     @app.template_filter("time_format")
     def time_format(value):
-        if value is None:
+        dt = _parse_datetime(value)
+        if dt is None:
             return "—"
-        return value.strftime("%I:%M %p")
+        return dt.strftime("%I:%M %p")
+
+    @app.template_filter("safe_strftime")
+    def safe_strftime(value, fmt="%d %b %Y"):
+        dt = _parse_datetime(value)
+        if dt is None:
+            return "—"
+        return dt.strftime(fmt)
 
     @app.template_filter("round2")
     def round2(value):

@@ -23,15 +23,15 @@ jwt      = JWTManager()
 class MockDB:
     """Mock SQLAlchemy db object for compatibility."""
     session = type('Session', (), {
-        'commit': lambda: None,
-        'rollback': lambda: None,
-        'add': lambda x: None,
-        'delete': lambda x: None,
-        'query': lambda: type('Query', (), {
+        'commit': lambda *args, **kwargs: None,
+        'rollback': lambda *args, **kwargs: None,
+        'add': lambda *args, **kwargs: None,
+        'delete': lambda *args, **kwargs: None,
+        'query': lambda *args, **kwargs: type('Query', (), {
             'filter': lambda *a, **kw: type('Filter', (), {
-                'first': lambda: None,
-                'all': lambda: [],
-                'first_or_404': lambda: None,
+                'first': lambda *args, **kwargs: None,
+                'all': lambda *args, **kwargs: [],
+                'first_or_404': lambda *args, **kwargs: None,
                 'paginate': lambda *a, **kw: type('Pagination', (), {
                     'items': [],
                     'page': 1,

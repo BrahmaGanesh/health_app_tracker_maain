@@ -1,12 +1,11 @@
 # routes/business_routes.py — Subscriber & Revenue Dashboard
 from functools import wraps
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from flask import Blueprint, render_template, redirect, url_for, make_response, jsonify
 from flask_login import login_required, current_user
 
-from extensions import db
-from models import User, now_ist, today_ist , UserSubscription
+from models import User, now_ist, today_ist, UserSubscription
 
 business_bp = Blueprint("business", __name__, url_prefix="/business")
 
@@ -21,14 +20,45 @@ def admin_required(f):
     return decorated
 
 
+def _plan(uid):
+    from models import UserSubscription
+    sub_list = UserSubscription.get_all(filters={"user_id": uid}, limit=1)
+    sub = sub_list[0] if sub_list else None
+    return sub.plan if sub and sub.is_active else "free"
+
+
+def _limit(uid):
+    plan = _plan(uid)
+    lim  = UserSubscription.PLAN_LIMITS.get(plan, 2)
+    return lim  # None = unlimited
+
+
+def _can_add(uid):
+    lim = _limit(uid)
+    if lim is None: return True
+    count = len(UserSubscription.get_all(filters={"user_id": uid, "status": "upcoming"}))
+    return count < lim
+
+
+def _is_family(uid):
+    return _plan(uid) == "family"
+
+
+# ═════════════════════════════════════════════════════════════════
+# DASHBOARD
+# ════════════════════════════════════════════════════════════════
+
+business_bp = Blueprint("business", __name__, url_prefix="/business")
+
+
 @business_bp.route("/")
 @login_required
 @admin_required
 def dashboard():
     now = now_ist() if callable(now_ist) else datetime.now()
     today = today_ist()
-    all_subs = UserSubscription.query.all()
-    total_users = User.query.count()
+    all_subs = UserSubscription.get_all()
+    total_users = User.count()
 
     # Active plan counts
     premium_count = sum(1 for s in all_subs if s.plan == "premium" and s.is_active)
@@ -64,12 +94,13 @@ def dashboard():
 
     # Expiring in 7 days
     in_7 = today + timedelta(days=7)
-    expiring_subs = UserSubscription.query.filter(
-        UserSubscription.expires_at.isnot(None),
-        UserSubscription.expires_at <= datetime.combine(in_7, datetime.min.time()),
-        UserSubscription.expires_at > now,
-        UserSubscription.plan != "free",
-    ).all()
+    expiring_subs = UserSubscription.get_all(
+        filters={
+            "plan": {"$in": ["premium", "family"]},
+            "expires_at_lte": datetime.combine(today + timedelta(days=7), datetime.min.time()),
+            "expires_at_gt": now,
+        }
+    )
     expiring_users = [s.user for s in expiring_subs if s.user]
 
     # Revenue trend — last 6 months
@@ -79,143 +110,132 @@ def dashboard():
     for i in range(5, -1, -1):
         ref = current_month_start - timedelta(days=i * 30)
         month_dt = ref.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        month_end = (month_dt.replace(day=28) + timedelta(days=4)).replace(day=1)
 
-        month_prem = sum(
-            1 for s in all_subs
-            if s.plan == "premium" and s.created_at and month_dt <= s.created_at < month_end
-        )
-        month_fam = sum(
-            1 for s in all_subs
-            if s.plan == "family" and s.created_at and month_dt <= s.created_at < month_end
-        )
+        month_subs = [s for s in all_subs if s.created_at and s.created_at.replace(day=1, hour=0, minute=0, second=0, microsecond=0) == month_dt]
+        month_mrr = sum(199 if s.plan == "premium" else 349 for s in month_subs if s.plan in ("premium", "family"))
 
         revenue_trend.append({
-            "month": month_dt.strftime("%b"),
-            "amount": (month_prem * 199) + (month_fam * 349),
+            "month": month_dt.strftime("%b %Y"),
+            "mrr": month_mrr,
         })
 
-    revenue_6m = sum(m["amount"] for m in revenue_trend)
-
-    # Safe values for template chart math
-    max_rev = max((m["amount"] for m in revenue_trend), default=0)
-    safe_max_rev = max_rev if max_rev > 0 else 1
-
-    # Enriched subscriptions list
-    subscriptions = []
-    for s in all_subs:
-        user = s.user
-        if not user:
-            continue
-
-        if s.plan == "free":
-            status = "free"
-        elif s.expires_at and s.expires_at < now:
-            status = "expired"
-        elif s.expires_at and s.expires_at < now + timedelta(days=3):
-            status = "trial"
-        else:
-            status = "active"
-
-        price = 199 if s.plan == "premium" else 349 if s.plan == "family" else 0
-        months = max(1, (now - s.created_at).days // 30) if s.created_at else 1
-        total_paid = price * months
-
-        subscriptions.append({
-            "user": user,
-            "user_id": user.id,
-            "plan": s.plan,
-            "status": status,
-            "created_at": s.created_at or now,
-            "expires_at": s.expires_at,
-            "total_paid": total_paid,
-        })
-
-    subscriptions.sort(key=lambda x: x["created_at"], reverse=True)
-
-    return render_template(
-        "admin/business_dashboard.html",
-        today=today,
-        now=now,
-        mrr=mrr,
-        prev_mrr=prev_mrr,
-        mrr_growth=mrr_growth,
-        total_subscribers=paid_users,
+    return render_template("business/dashboard.html",
         total_users=total_users,
         premium_count=premium_count,
         family_count=family_count,
         free_count=free_count,
+        paid_users=paid_users,
+        mrr=mrr,
+        mrr_growth=mrr_growth,
         new_this_month=new_this_month,
         conversion_rate=conversion_rate,
-        expiring_7d=len(expiring_users),
         expiring_users=expiring_users,
         revenue_trend=revenue_trend,
-        revenue_6m=revenue_6m,
-        max_rev=max_rev,
-        safe_max_rev=safe_max_rev,
-        subscriptions=subscriptions,
     )
 
 
-@business_bp.route("/subscriber/<int:user_id>")
+# ============================================================
+# API ENDPOINTS
+# ════════════════════════════════════════════════════════════════
+
+@business_bp.route("/api/subscribers")
 @login_required
 @admin_required
-def subscriber_detail(user_id):
-    user = User.query.get_or_404(user_id)
-    sub = UserSubscription.query.filter_by(user_id=user_id).first()
-    return render_template(
-        "admin/subscriber_detail.html",
-        user=user,
-        sub=sub,
-        today=today_ist(),
-    )
+def api_subscribers():
+    """Return paginated subscriber list for admin table."""
+    page = int(request.args.get("page", 1))
+    per_page = 20
+    all_subs = UserSubscription.get_all()
+
+    # Build subscriber data with user info
+    sub_data = []
+    for s in all_subs:
+        user = User.get_by_id(s.user_id) if s.user_id else None
+        sub_data.append({
+            "id": s.id,
+            "user_id": s.user_id,
+            "user_email": user.email if user else "Unknown",
+            "user_name": user.name if user else "Unknown",
+            "plan": s.plan,
+            "status": s.status,
+            "is_active": s.is_active,
+            "created_at": s.created_at,
+            "expires_at": s.expires_at,
+            "amount": s.amount,
+        })
+
+    # Pagination
+    per_page = 20
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated = sub_data[start:end]
+
+    return jsonify({
+        "subscribers": paginated,
+        "total": len(sub_data),
+        "page": page,
+        "per_page": per_page,
+        "total_pages": (len(sub_data) + 19) // 20,
+    })
 
 
-@business_bp.route("/export/subscribers")
+@business_bp.route("/api/mrr-history")
+@login_required
+@admin_required
+def api_mrr_history():
+    """Return MRR history for charts."""
+    all_subs = UserSubscription.get_all()
+
+    # Build 12 months of history
+    history = []
+    now = datetime.utcnow()
+    for i in range(11, -1, -1):
+        ref = now - timedelta(days=30 * i)
+        month_start = ref.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        month_end = (month_start + timedelta(days=32)).replace(day=1) - timedelta(seconds=1)
+
+        month_subs = [s for s in all_subs if s.created_at and month_start <= s.created_at <= month_end]
+        month_mrr = sum(199 if s.plan == "premium" else 349 for s in month_subs if s.plan in ("premium", "family"))
+
+        history.append({
+            "month": month_start.strftime("%b %Y"),
+            "mrr": month_mrr,
+            "subscribers": len([s for s in month_subs if s.plan in ("premium", "family")]),
+        })
+
+    return jsonify(history)
+
+
+@business_bp.route("/export-subscribers")
 @login_required
 @admin_required
 def export_subscribers():
-    subs = UserSubscription.query.all()
-    rows = ["Name,Email,Plan,Status,Started,Expires,Total Paid (INR)"]
+    """Export all subscribers as CSV."""
+    import csv
+    import io
 
-    for s in subs:
-        u = s.user
-        if not u:
-            continue
+    all_subs = UserSubscription.get_all()
+    output = io.StringIO()
+    writer = csv.writer(output)
 
-        price = 199 if s.plan == "premium" else 349 if s.plan == "family" else 0
-        months = max(1, (datetime.now() - s.created_at).days // 30) if s.created_at else 1
-        total = price * months
-        status = "active" if s.is_active else "expired"
+    writer.writerow(["User ID", "Email", "Name", "Plan", "Status", "Created At", "Expires At", "Amount", "Currency"])
 
-        rows.append(
-            f'"{u.name}","{u.email}","{s.plan}","{status}",'
-            f'"{s.created_at.strftime("%Y-%m-%d") if s.created_at else ""}",'
-            f'"{s.expires_at.strftime("%Y-%m-%d") if s.expires_at else ""}",'
-            f'"{total}"'
-        )
+    for s in all_subs:
+        user = User.get_by_id(s.user_id) if s.user_id else None
+        writer.writerow([
+            s.user_id,
+            user.email if user else "Unknown",
+            user.name if user else "Unknown",
+            s.plan,
+            s.status,
+            s.created_at.strftime("%Y-%m-%d") if s.created_at else "",
+            s.expires_at.strftime("%Y-%m-%d") if s.expires_at else "",
+            s.amount,
+            s.currency,
+        ])
 
-    csv_data = "\n".join(rows)
-    response = make_response(csv_data)
+    output.seek(0)
+    response = make_response(output.getvalue())
     response.headers["Content-Disposition"] = "attachment; filename=subscribers.csv"
-    response.headers["Content-Type"] = "text/csv"
+    response.headers["Content-type"] = "text/csv"
     return response
-
-
-@business_bp.route("/api/stats")
-@login_required
-@admin_required
-def api_stats():
-    all_subs = UserSubscription.query.all()
-    premium = sum(1 for s in all_subs if s.plan == "premium" and s.is_active)
-    family = sum(1 for s in all_subs if s.plan == "family" and s.is_active)
-    total_users = User.query.count()
-
-    return jsonify({
-        "mrr": (premium * 199) + (family * 349),
-        "premium": premium,
-        "family": family,
-        "free": max(total_users - premium - family, 0),
-        "total_users": total_users,
-        "as_of": datetime.now().isoformat(),
-    })

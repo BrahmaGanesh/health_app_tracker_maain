@@ -5,9 +5,7 @@
 from flask import Blueprint, jsonify
 from flask_jwt_extended import jwt_required, get_current_user
 from datetime import datetime, date, timedelta
-from sqlalchemy import func
 
-from extensions import db
 from models import (
     HealthMetric, MealPlan, MealItem, NutritionDailyLog,
     Alert, WeeklyInsight,
@@ -31,15 +29,17 @@ def dashboard():
     today = date.today()
     now = datetime.utcnow()
 
-    latest_bp = HealthMetric.query.filter_by(
-        user_id=user.id, metric_type="bp"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    latest_bp_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "bp"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest_bp = latest_bp_list[0] if latest_bp_list else None
 
-    bp_7day = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "bp",
-        HealthMetric.recorded_at >= now - timedelta(days=7)
-    ).order_by(HealthMetric.recorded_at.asc()).all()
+    bp_7day = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "bp", "recorded_at_gte": now - timedelta(days=7)},
+        order_by="recorded_at"
+    )
 
     avg_sys_7 = avg_dia_7 = None
     if bp_7day:
@@ -52,254 +52,150 @@ def dashboard():
 
     bp_streak = _compute_streak(user.id, "bp")
 
-    latest_weight = HealthMetric.query.filter_by(
-        user_id=user.id, metric_type="weight"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    latest_weight = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "weight"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest_weight = latest_weight[0] if latest_weight else None
 
-    water_today = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "water",
-        func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
+    # Today's water
+    water_today_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "water", "recorded_at_date": today}
+    )
+    water_today = sum(h.value1 for h in water_today_list if h.value1)
 
-    water_target = user.goals.target_water_litres if user.goals else 2.5
-    water_pct = min(100, int(float(water_today) / water_target * 100)) if water_target else 0
+    water_target = 2.5
+    # Could fetch from user.goals
+    water_pct = min(100, int((water_today / water_target) * 100)) if water_target else 0
 
-    steps_today = StepLog.query.filter_by(user_id=user.id, log_date=today).first()
-    steps_target = user.goals.target_steps if user.goals else 8000
+    # Today's nutrition
+    log = NutritionDailyLog.get_one(filters={"user_id": user.id, "log_date": today})
+    today_nutrition = log if log else None
 
-    sleep_today = SleepLog.query.filter_by(user_id=user.id, log_date=today).first()
-    sleep_yesterday = SleepLog.query.filter_by(
-        user_id=user.id, log_date=today - timedelta(days=1)
-    ).first()
-    sleep_record = sleep_today or sleep_yesterday
-
-    active_plan = MealPlan.query.filter_by(
-        user_id=user.id, is_active=True
-    ).order_by(MealPlan.generated_at.desc()).first()
+    # Active meal plan
+    active_plan_list = MealPlan.get_all(
+        filters={"user_id": user.id, "is_active": True},
+        order_by="-week_start_date",
+        limit=1
+    )
+    active_plan = active_plan_list[0] if active_plan_list else None
 
     today_meals = []
     meals_done = 0
     meals_total = 0
-    meals_pct = 0
 
     if active_plan:
         day_name = today.strftime("%A")
-        items = MealItem.query.filter_by(
-            plan_id=active_plan.id, day=day_name
-        ).order_by(MealItem.slot_order.asc()).all()
-        for item in items:
-            today_meals.append({
-                "id": item.id,
-                "meal_slot": item.meal_slot,
-                "slot_order": item.slot_order,
-                "completed": item.completed,
-                "recipe": {
-                    "id": item.recipe.id,
-                    "name": item.recipe.name,
-                    "calories": item.recipe.calories,
-                    "protein": item.recipe.protein,
-                    "category": item.recipe.category,
-                }
-            })
-        meals_done = sum(1 for m in today_meals if m["completed"])
-        meals_total = len(today_meals)
-        meals_pct = int(meals_done / meals_total * 100) if meals_total else 0
+        items = MealItem.get_all(filters={"plan_id": active_plan.id, "day": today.strftime("%A")})
+        today_meals = items
+        meals_done = sum(1 for i in items if i.completed)
+        meals_total = len(items)
 
-    nutrition_today = NutritionDailyLog.query.filter_by(
-        user_id=user.id, log_date=today
-    ).first()
+    meals_pct = int((meals_done / meals_total) * 100) if meals_total else 0
 
-    active_alerts = Alert.query.filter_by(
-        user_id=user.id, is_read=False, is_dismissed=False
-    ).order_by(Alert.created_at.desc()).limit(5).all()
+    # Alerts
+    active_alerts = Alert.get_all(
+        filters={"user_id": user.id, "is_dismissed": False, "is_read": False},
+        order_by="-created_at"
+    )
 
-    meds_today = []
-    for med in user.medicines:
-        if not med.is_active:
-            continue
+    # Insights
+    insights_list = WeeklyInsight.get_all(
+        filters={"user_id": user.id, "week_start": today - timedelta(days=today.weekday())},
+        order_by="priority"
+    )
+    insights = insights_list if insights_list else []
 
-        log = MedicineLog.query.filter_by(
-            medicine_id=med.id,
-            log_date=today
-        ).first()
+    # Medicines
+    medicines_today = Medicine.get_all(
+        filters={"user_id": user.id, "is_active": True}
+    )
+    meds_taken = 0
+    meds_total = len(medicines_today)
+    for med in medicines_today:
+        log_today = MedicineLog.get_one(filters={"medicine_id": med.id, "log_date": date.today()})
+        if log_today and log_today.taken:
+            meds_taken += 1
 
-        meds_today.append({
-            "id": med.id,
-            "name": med.name,
-            "dosage": med.dosage,
-            "schedule_type": med.schedule_type,
-            "custom_times": med.custom_times,
-            "reminder_enabled": med.reminder_enabled,
-        })
+    # Latest sugar
+    latest_sugar = None
+    if "Diabetes" in getattr(user, "condition_names", []):
+        latest_sugar_list = HealthMetric.get_all(
+            filters={"user_id": user.id, "metric_type": "sugar"},
+            order_by="-recorded_at",
+            limit=1
+        )
+        latest_sugar = latest_sugar_list[0] if latest_sugar_list else None
 
-    meds_taken = sum(1 for m in meds_today if m.get("taken", False))
-
-    week_start = today - timedelta(days=today.weekday())
-    insights = WeeklyInsight.query.filter_by(
-        user_id=user.id, week_start=week_start
-    ).order_by(WeeklyInsight.priority.asc()).limit(3).all()
-
-    insights_data = [
-        {
-            "text": i.insight_text,
-            "icon": i.icon,
-            "direction": i.direction,
-            "metric": i.metric_type,
-            "priority": i.priority,
-        }
-        for i in insights
-    ]
-
-    if not insights_data:
-        insights_data = _live_insights(user, latest_bp, nutrition_today)
-
-    score_today = DailyHealthScore.query.filter_by(
-        user_id=user.id, score_date=today
-    ).first()
-
-    bp_chart = [
-        {"day": r.recorded_at.strftime("%a"), "sys": r.value1, "dia": r.value2}
-        for r in bp_7day
-    ]
-
-    hour = datetime.now().hour
-    if hour < 12:
-        greeting = "Good morning"
-    elif hour < 17:
-        greeting = "Good afternoon"
-    else:
-        greeting = "Good evening"
+    # Weight progress
+    weight_to_go = None
+    weight_progress = 0
+    goals = getattr(user, "goals", None)
+    if goals and goals.target_weight_kg and latest_weight and latest_weight.value1:
+        weight_to_go = round(latest_weight.value1 - goals.target_weight_kg, 1)
+        if hasattr(user, "health_profile") and user.health_profile and user.health_profile.current_weight_kg:
+            start = user.health_profile.current_weight_kg
+            if start != goals.target_weight_kg:
+                weight_progress = int((start - latest_weight.value1) / (start - goals.target_weight_kg) * 100)
 
     return ok({
-        "greeting": f"{greeting}, {user.name}",
-        "date": str(today),
-        "day_name": today.strftime("%A, %d %B %Y"),
         "bp": {
             "latest": latest_bp.to_dict() if latest_bp else None,
-            "status": latest_bp.bp_status if latest_bp else "No Reading",
             "avg_sys_7": avg_sys_7,
             "avg_dia_7": avg_dia_7,
             "streak": bp_streak,
-            "chart": bp_chart,
         },
         "weight": {
             "latest": latest_weight.to_dict() if latest_weight else None,
-            "bmi": user.bmi,
-            "bmi_status": user.bmi_status,
+            "to_go": weight_to_go,
+            "progress": weight_progress,
         },
         "water": {
-            "today_total": round(float(water_today), 2),
+            "today": water_today,
             "target": water_target,
-            "pct": water_pct,
+            "percentage": water_pct,
         },
-        "steps": {
-            "count": steps_today.steps if steps_today else 0,
-            "calories": steps_today.calories_burned if steps_today else 0,
-            "distance": steps_today.distance_km if steps_today else 0,
-            "target": steps_target,
-            "pct": min(100, int((steps_today.steps if steps_today else 0) / steps_target * 100)) if steps_target else 0,
+        "nutrition": {
+            "today": today_nutrition.to_dict() if today_nutrition else None,
+            "calorie_target": getattr(user, "daily_calorie_target", 2000),
+            "protein_target": getattr(user, "daily_protein_target", 80),
         },
-        "sleep": sleep_record.to_dict() if sleep_record else None,
         "meals": {
-            "items": today_meals,
+            "today": [m.to_dict() for m in today_meals],
             "done": meals_done,
             "total": meals_total,
-            "pct": meals_pct,
-            "has_plan": active_plan is not None,
-        },
-        "nutrition": nutrition_today.to_dict() if nutrition_today else None,
-        "medicines": {
-            "list": meds_today,
-            "taken": meds_taken,
-            "total": len(meds_today),
+            "percentage": meals_pct,
         },
         "alerts": [a.to_dict() for a in active_alerts],
-        "alert_count": len(active_alerts),
-        "insights": insights_data,
-        "health_score": score_today.to_dict() if score_today else None,
-        "targets": {
-            "calories": user.daily_calorie_target,
-            "protein": user.daily_protein_target,
-            "water": water_target,
-            "steps": steps_target,
-            "sleep_hours": user.goals.target_sleep_hours if user.goals else 7.5,
-            "exercise_mins": user.goals.target_exercise_mins if user.goals else 30,
-            "bp_target": f"{user.goals.target_bp_systolic}/{user.goals.target_bp_diastolic}" if user.goals else "130/80",
+        "insights": [i.to_dict() for i in insights_list],
+        "medicines": {
+            "today": [m.to_dict() for m in medicines_today],
+            "taken": meds_taken,
+            "total": meds_total,
         },
-        "conditions": user.condition_names,
-        "has_bp": user.has_bp,
-        "has_diabetes": user.has_diabetes,
+        "sugar": {
+            "latest": latest_sugar.to_dict() if latest_sugar else None,
+        },
+        "weight_progress": {
+            "to_go": weight_to_go,
+            "percentage": weight_progress,
+        },
     })
 
 
 def _compute_streak(user_id, metric_type):
+    """Compute streak for a metric type."""
     streak = 0
-    check_dt = date.today()
+    check_date = date.today()
     for _ in range(365):
-        exists = HealthMetric.query.filter(
-            HealthMetric.user_id == user_id,
-            HealthMetric.metric_type == metric_type,
-            func.date(HealthMetric.recorded_at) == check_dt
-        ).first()
+        exists = HealthMetric.get_all(
+            filters={"user_id": user_id, "metric_type": metric_type, "recorded_at_date": check_date},
+            limit=1
+        )
         if exists:
             streak += 1
-            check_dt -= timedelta(days=1)
+            check_date -= timedelta(days=1)
         else:
             break
     return streak
-
-
-def _live_insights(user, latest_bp, nutrition):
-    insights = []
-
-    if latest_bp and user.has_bp:
-        s = latest_bp.value1 or 0
-        d = latest_bp.value2 or 0
-        if s >= 160:
-            insights.append({
-                "text": f"BP {int(s)}/{int(d)} mmHg needs attention. Review salt intake and medicine.",
-                "icon": "📈",
-                "direction": "worsening",
-                "metric": "bp",
-                "priority": 1
-            })
-        elif s < 130 and d < 80:
-            insights.append({
-                "text": f"BP {int(s)}/{int(d)} mmHg is in normal range. Excellent progress.",
-                "icon": "📉",
-                "direction": "improving",
-                "metric": "bp",
-                "priority": 1
-            })
-        else:
-            insights.append({
-                "text": f"BP {int(s)}/{int(d)} mmHg — continue daily monitoring twice a day.",
-                "icon": "📊",
-                "direction": "stable",
-                "metric": "bp",
-                "priority": 2
-            })
-
-    if nutrition:
-        cal = nutrition.total_calories or 0
-        tgt = user.daily_calorie_target
-        pct = int(cal / tgt * 100) if tgt else 0
-        if pct < 50:
-            insights.append({
-                "text": f"Only {cal} kcal consumed so far. Complete all 5 meal slots today.",
-                "icon": "🍽️",
-                "direction": "worsening",
-                "metric": "nutrition",
-                "priority": 2
-            })
-        else:
-            insights.append({
-                "text": f"Good nutrition — {cal}/{tgt} kcal logged. Keep going.",
-                "icon": "🥗",
-                "direction": "stable",
-                "metric": "nutrition",
-                "priority": 3
-            })
-
-    return insights[:3]

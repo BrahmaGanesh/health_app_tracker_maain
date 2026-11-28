@@ -67,7 +67,7 @@
   <div class="hero-left">
     <div class="hero-eyebrow">🥗 Today's Nutrition</div>
     <h1 class="hero-title">Nutrition Dashboard</h1>
-    <p class="hero-sub">{{ today.strftime('%A, %d %B %Y') }} · Based on completed meals.</p>
+    <p class="hero-sub">{{ today | safe_strftime("%d %b %Y") if today else 'Today'   }} · Based on completed meals.</p>
   </div>
   <div class="hero-score">
     <span class="hs-val">{{ avg_score }}%</span>
@@ -159,7 +159,7 @@
         <div class="detail-icon">{{ icon }}</div>
         <div class="detail-label">{{ label }}</div>
         <div class="detail-val">
-          {{ val|round(1) }}{% if label == 'Calories' %} kcal{% else %}g{% endif %}
+          {{ (val | float) | round(1) }}{% if label == 'Calories' %} kcal{% else %}g{% endif %}
         </div>
         <div class="detail-bar">
           <div class="detail-bar-bg">
@@ -284,8 +284,8 @@
 
 {% block extra_js %}
 <script>
-const weekData   = {{ week_chart   | tojson }};
-const sodiumData = {{ sodium_data  | tojson }};
+const weekData   = {{ week_chart   | default([]) | tojson }};
+const sodiumData = {{ sodium_data  | default([]) | tojson }};
 const protein_g  = {{ total_protein }};
 const carbs_g    = {{ total_carbs }};
 const fats_g     = {{ total_fats }};

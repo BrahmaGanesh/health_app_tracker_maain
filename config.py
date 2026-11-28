@@ -22,6 +22,7 @@ class Config:
     FIREBASE_CREDENTIALS_BASE64 = os.environ.get("FIREBASE_CREDENTIALS_BASE64", "")
     FIREBASE_CREDENTIALS    = os.environ.get("FIREBASE_CREDENTIALS", "firebase-credentials.json")
     FCM_SERVER_KEY          = os.environ.get("FCM_SERVER_KEY", "")
+    FIREBASE_API_KEY        = os.environ.get("FIREBASE_API_KEY", "")
 
     # ── Firebase (FCM Push Notifications) ─────────────────────
     FCM_SERVER_KEY       = os.environ.get("FCM_SERVER_KEY", "")

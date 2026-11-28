@@ -3,7 +3,6 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 from functools import wraps
 from datetime import datetime, timedelta, date
-from extensions import db
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -21,29 +20,33 @@ def admin_required(f):
 @admin_required
 def dashboard():
     from models import User, HealthMetric, EmailReportLog, AdminLog, Alert, Document
-    from sqlalchemy import func
 
-    total_users     = User.query.count()
-    active_users    = User.query.filter_by(is_active=True).count()
-    verified_users  = User.query.filter_by(is_verified=True).count()
-    new_today       = User.query.filter(func.date(User.created_at) == date.today()).count()
-    new_this_week   = User.query.filter(User.created_at >= datetime.utcnow() - timedelta(days=7)).count()
+    total_users     = User.count()
+    active_users    = User.count(filters={"is_active": True})
+    verified_users  = User.count(filters={"is_verified": True})
 
-    total_bp        = HealthMetric.query.filter_by(metric_type="bp").count()
-    total_weight    = HealthMetric.query.filter_by(metric_type="weight").count()
-    total_water     = HealthMetric.query.filter_by(metric_type="water").count()
-    total_docs      = Document.query.count()
-    total_reports   = EmailReportLog.query.count()
+    today = date.today()
+    new_today_list = User.get_all(filters={"created_at_date": today})
+    new_today = len(new_today_list)
 
-    recent_users    = User.query.order_by(User.created_at.desc()).limit(10).all()
-    recent_logs     = AdminLog.query.order_by(AdminLog.created_at.desc()).limit(20).all()
-    recent_alerts   = Alert.query.filter_by(alert_type="emergency").order_by(Alert.created_at.desc()).limit(5).all()
+    new_this_week = len(User.get_all(filters={"created_at_gte": datetime.utcnow() - timedelta(days=7)}))
+
+    total_bp        = HealthMetric.count(filters={"metric_type": "bp"})
+    total_weight    = HealthMetric.count(filters={"metric_type": "weight"})
+    total_water     = HealthMetric.count(filters={"metric_type": "water"})
+    total_docs      = Document.count()
+    total_reports   = EmailReportLog.count()
+
+    recent_users    = User.get_all(order_by="-created_at", limit=10)
+    recent_logs     = AdminLog.get_all(order_by="-created_at", limit=20)
+    recent_alerts   = Alert.get_all(limit=10)
 
     # Registrations by day (last 7 days)
     reg_chart = []
     for i in range(6, -1, -1):
         d = date.today() - timedelta(days=i)
-        count = User.query.filter(func.date(User.created_at) == d).count()
+        count_list = User.get_all(filters={"created_at_date": d})
+        count = len(count_list)
         reg_chart.append({"day": d.strftime("%a"), "count": count})
 
     return render_template("admin/dashboard.html",
@@ -64,76 +67,156 @@ def users():
     from models import User
     search = request.args.get("search","").strip()
     page   = int(request.args.get("page",1))
-    q = User.query
+
     if search:
-        q = q.filter(User.name.ilike(f"%{search}%") | User.email.ilike(f"%{search}%"))
-    users_paged = q.order_by(User.created_at.desc()).paginate(page=page, per_page=20, error_out=False)
-    return render_template("admin/users.html", users=users_paged, search=search)
+        # Simple search - get all and filter in Python
+        all_users = User.get_all()
+        filtered = [u for u in all_users if search.lower() in u.name.lower() or search.lower() in u.email.lower()]
+    else:
+        filtered = User.get_all()
+
+    # Simple pagination
+    per_page = 20
+    start = (page - 1) * per_page
+    end = start + per_page
+    users_page = filtered[start:end]
+
+    # Create a simple pagination object
+    class SimplePagination:
+        def __init__(self, items, page, per_page, total):
+            self.items = items
+            self.page = page
+            self.per_page = per_page
+            self.total = total
+            self.pages = (total + per_page - 1) // per_page
+
+    pagination = SimplePagination(filtered[start:end], page, 20, len(filtered))
+
+    return render_template("admin/users.html", users=pagination, search=search)
 
 @admin_bp.route("/users/<int:user_id>/toggle-active")
 @login_required
 @admin_required
 def toggle_user_active(user_id):
     from models import User, AdminLog
-    user = User.query.get_or_404(user_id)
+    user = User.get_by_id_or_404(user_id)
     if user.id == current_user.id:
         flash("Cannot deactivate your own account.", "danger")
         return redirect(url_for("admin.users"))
     user.is_active = not user.is_active
-    log = AdminLog(admin_id=current_user.id,
-                   action=f"{'Activated' if user.is_active else 'Deactivated'} user {user.email}",
-                   target_type="user", target_id=user.id,
-                   ip_address=request.remote_addr)
-    db.session.add(log)
-    db.session.commit()
+    user.save()
+    # Log the action
+    log = AdminLog(
+        admin_id=current_user.id,
+        action="toggle_user_active",
+        target_type="user",
+        target_id=user.id,
+        details={"new_status": user.is_active}
+    )
+    log.save()
     flash(f"User {user.name} {'activated' if user.is_active else 'deactivated'}.", "success")
     return redirect(url_for("admin.users"))
 
-@admin_bp.route("/users/<int:user_id>/make-admin")
+@admin_bp.route("/users/<int:user_id>/toggle-verified")
 @login_required
 @admin_required
-def make_admin(user_id):
+def toggle_user_verified(user_id):
     from models import User, AdminLog
-    user = User.query.get_or_404(user_id)
-    user.is_admin = not user.is_admin
-    log = AdminLog(admin_id=current_user.id,
-                   action=f"{'Granted' if user.is_admin else 'Revoked'} admin for {user.email}",
-                   target_type="user", target_id=user.id,
-                   ip_address=request.remote_addr)
-    db.session.add(log)
-    db.session.commit()
-    flash(f"Admin {'granted to' if user.is_admin else 'revoked from'} {user.name}.", "success")
+    user = User.get_by_id_or_404(user_id)
+    user.is_verified = not user.is_verified
+    user.save()
+    log = AdminLog(
+        admin_id=current_user.id,
+        action="toggle_user_verified",
+        target_type="user",
+        target_id=user.id,
+        details={"new_status": user.is_verified}
+    )
+    log.save()
+    flash(f"User {user.name} {'verified' if user.is_verified else 'unverified'}.", "success")
     return redirect(url_for("admin.users"))
 
-@admin_bp.route("/stats")
+@admin_bp.route("/users/<int:user_id>/toggle-admin")
 @login_required
 @admin_required
-def stats():
-    from models import User, HealthMetric, EmailReportLog, Document, Alert
-    from sqlalchemy import func
-    today = date.today()
-
-    # Daily active users (logged in last 7 days)
-    dau = User.query.filter(User.last_login >= datetime.utcnow() - timedelta(days=1)).count()
-    wau = User.query.filter(User.last_login >= datetime.utcnow() - timedelta(days=7)).count()
-
-    # Metric totals
-    metrics_by_type = db.session.query(HealthMetric.metric_type, func.count(HealthMetric.id)).group_by(HealthMetric.metric_type).all()
-    metrics_data    = {m: c for m, c in metrics_by_type}
-
-    return render_template("admin/stats.html",
-        dau=dau, wau=wau, metrics_data=metrics_data,
-        total_alerts=Alert.query.count(),
-        total_docs=Document.query.count(),
-        total_reports=EmailReportLog.query.count(),
+def toggle_user_admin(user_id):
+    from models import User, AdminLog
+    user = User.get_by_id_or_404(user_id)
+    if user.id == current_user.id:
+        flash("Cannot change your own admin status.", "danger")
+        return redirect(url_for("admin.users"))
+    user.plan = "admin" if user.plan != "admin" else "free"
+    user.save()
+    log = AdminLog(
+        admin_id=current_user.id,
+        action="toggle_user_admin",
+        target_type="user",
+        target_id=user.id,
+        details={"new_plan": user.plan}
     )
+    log.save()
+    flash(f"User {user.name} admin status changed.", "success")
+    return redirect(url_for("admin.users"))
 
 @admin_bp.route("/logs")
 @login_required
 @admin_required
 def logs():
-    from models import AdminLog, EmailReportLog
-    page = int(request.args.get("page",1))
-    admin_logs = AdminLog.query.order_by(AdminLog.created_at.desc()).paginate(page=page, per_page=30, error_out=False)
-    email_logs = EmailReportLog.query.order_by(EmailReportLog.sent_at.desc()).limit(20).all()
-    return render_template("admin/logs.html", admin_logs=admin_logs, email_logs=email_logs)
+    from models import AdminLog
+    page = int(request.args.get("page", 1))
+    per_page = 30
+    logs = AdminLog.get_all(order_by="-created_at", limit=per_page)
+    return render_template("admin/logs.html", logs=logs)
+
+@admin_bp.route("/alerts")
+@login_required
+@admin_required
+def alerts():
+    from models import Alert
+    unread = Alert.get_all(filters={"is_read": False, "is_dismissed": False}, order_by="-created_at", limit=50)
+    return render_template("admin/alerts.html", unread=unread)
+
+@admin_bp.route("/reports")
+@login_required
+@admin_required
+def reports():
+    from models import EmailReportLog
+    reports = EmailReportLog.get_all(order_by="-sent_at", limit=50)
+    return render_template("admin/reports.html", reports=reports)
+
+@admin_bp.route("/stats")
+@login_required
+@admin_required
+def stats():
+    from models import User, HealthMetric, Document, EmailReportLog
+    dau = len(User.get_all(filters={"last_login_gte": datetime.utcnow() - timedelta(days=1)}))
+    wau = len(User.get_all(filters={"last_login_gte": datetime.utcnow() - timedelta(days=7)}))
+    total_alerts = Alert.count()
+    total_docs = Document.count()
+    total_reports = EmailReportLog.count()
+
+    # Registrations per day
+    reg_chart = []
+    for i in range(6, -1, -1):
+        d = date.today() - timedelta(days=i)
+        count_list = User.get_all(filters={"created_at_date": d})
+        count = len(count_list)
+        reg_chart.append({"day": d.strftime("%a"), "count": count})
+
+    return jsonify({
+        "dau": dau,
+        "wau": wau,
+        "total_alerts": total_alerts,
+        "total_docs": total_docs,
+        "total_reports": total_reports,
+        "reg_chart": reg_chart,
+    })
+
+@admin_bp.route("/logs/page/<int:page>")
+@login_required
+@admin_required
+def logs_paged(page):
+    from models import AdminLog
+    per_page = 30
+    logs = AdminLog.get_all(order_by="-created_at", limit=30)
+    return render_template("admin/logs.html", logs=logs)

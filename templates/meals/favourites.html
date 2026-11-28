@@ -48,7 +48,7 @@
     <h1 class="hero-title">My Favourites</h1>
     <p class="hero-sub">{{ recipes|length }} recipe{% if recipes|length != 1 %}s{% endif %} saved to your personal collection.</p>
   </div>
-  <a href="{{ url_for('meal.recipes') }}" style="background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.3);border-radius:var(--radius-sm);padding:10px 18px;font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:6px;position:relative;transition:all 0.18s;">
+  <a href="{{ url_for('meal.recipe_search') }}" style="background:rgba(255,255,255,0.15);color:white;border:1.5px solid rgba(255,255,255,0.3);border-radius:var(--radius-sm);padding:10px 18px;font-size:13px;font-weight:600;text-decoration:none;display:flex;align-items:center;gap:6px;position:relative;transition:all 0.18s;">
     🍲 Browse All Recipes
   </a>
 </div>
@@ -61,7 +61,7 @@
   <div class="recipe-card" style="animation-delay:{{ loop.index0 * 0.05 }}s;">
     <div class="recipe-thumb {{ cat_class.get(r.category, 'thumb-special') }}">
       <span>{{ cat_emoji.get(r.category, '🍲') }}</span>
-      <a href="{{ url_for('meal.favorite_recipe', recipe_id=r.id) }}" class="unfav-btn" title="Remove from favourites">💔</a>
+      <a href="{{ url_for('meal.toggle_favorite', recipe_id=r.id) }}" class="unfav-btn" title="Remove from favourites">💔</a>
     </div>
     <div class="rc-body">
       <div class="rc-cat">{{ r.category or 'Recipe' }}</div>
@@ -81,7 +81,7 @@
   <span class="empty-icon">🤍</span>
   <div class="empty-title">No Favourites Yet</div>
   <p class="empty-desc">Browse recipes and tap the heart icon to save your favourites here for quick access.</p>
-  <a href="{{ url_for('meal.recipes') }}" class="btn btn-primary">🍲 Browse Recipes</a>
+  <a href="{{ url_for('meal.recipe_search') }}" class="btn btn-primary">🍲 Browse Recipes</a>
 </div>
 {% endif %}
 {% endblock %}

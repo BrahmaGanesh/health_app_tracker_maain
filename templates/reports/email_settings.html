@@ -162,7 +162,7 @@
   {% for log in logs %}
   <div class="log-row">
     <span>{{ '✅' if log.status == 'sent' else '❌' }}</span>
-    <span style="flex:1;">{{ log.sent_at.strftime('%d %b %Y, %I:%M %p') }} — {{ log.recipients }}</span>
+    <span style="flex:1;">{{ log.sent_at | safe_strftime("%d %b %Y, %I:%M %p") }} — {{ log.recipients }}</span>
     {% if log.health_score %}<span style="font-family:'DM Mono',monospace;color:var(--sage);">{{ log.health_score|int }}/100</span>{% endif %}
   </div>
   {% endfor %}

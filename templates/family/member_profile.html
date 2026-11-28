@@ -78,7 +78,7 @@
   <div class="stat-card" style="border-top:3px solid #ef4444;">
     <div class="sc-lbl">❤️ Latest BP</div>
     <div class="sc-val" style="color:#ef4444;">{% if latest_bp %}{{ latest_bp.value_1|int }}/{{ latest_bp.value_2|int }}{% else %}—{% endif %}</div>
-    <div class="sc-sub">{% if latest_bp %}{{ latest_bp.recorded_at.strftime('%d %b %I:%M %p') }}{% else %}No reading{% endif %}</div>
+    <div class="sc-sub">{% if latest_bp %}{{ latest_bp.recorded_at | safe_strftime("%d %b %I:%M %p") }}{% else %}No reading{% endif %}</div>
   </div>
   <div class="stat-card" style="border-top:3px solid var(--violet);">
     <div class="sc-lbl">⚖️ Weight</div>
@@ -153,7 +153,7 @@
               {% elif m.metric_type == 'steps' %}{{ m.value_1|int }} steps
               {% else %}{{ m.value_1 }}{% endif %}
             </span>
-            <span class="metric-time">{{ m.recorded_at.strftime('%d %b %I:%M %p') }}</span>
+            <span class="metric-time">{{ m.recorded_at | safe_strftime("%d %b %I:%M %p") }}</span>
           </div>
           {% endfor %}
         {% else %}

@@ -56,8 +56,8 @@ tr:hover{background:var(--bg);}
       <tr>
         <td><div style="display:flex;align-items:center;gap:10px;"><div class="user-avatar">{{ u.name[0]|upper }}</div>{{ u.name }}</div></td>
         <td>{{ u.email }}</td>
-        <td>{{ u.created_at.strftime('%d %b %Y') }}</td>
-        <td>{{ u.last_login.strftime('%d %b %Y') if u.last_login else '—' }}</td>
+        <td>{{ u.created_at | safe_strftime("%d %b %Y") }}</td>
+        <td>{{ u.last_login | safe_strftime("%d %b %Y") if u.last_login else '—'   }}</td>
         <td>
           <span class="badge {% if u.is_active %}badge-active{% else %}badge-inactive{% endif %}">{{ 'Active' if u.is_active else 'Inactive' }}</span>
           {% if u.is_verified %}<span class="badge badge-verified">Verified</span>{% endif %}

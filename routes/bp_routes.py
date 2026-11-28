@@ -8,10 +8,8 @@ from flask import (
     url_for, flash, request, jsonify
 )
 from flask_login import login_required, current_user
-from datetime import datetime, date, timedelta
-from sqlalchemy import func, extract
+from datetime import datetime, date, timedelta, timezone
 
-from extensions import db
 from models import HealthMetric, Alert
 
 bp_bp = Blueprint("bp", __name__)
@@ -31,12 +29,7 @@ def check_and_create_alerts(user_id, systolic, diastolic):
     """Auto-create alert if BP is dangerously high."""
     s, d = float(systolic), float(diastolic)
     if s >= 180 or d >= 120:
-        existing = Alert.query.filter_by(
-            user_id=user_id,
-            alert_type="emergency",
-            category="bp",
-            is_dismissed=False
-        ).first()
+        existing = (Alert.get_all(filters={"user_id": user_id, "alert_type": "emergency", "category": "bp", "is_dismissed": False}, limit=1) or [None])[0]
         if not existing:
             alert = Alert(
                 user_id=user_id,
@@ -49,15 +42,10 @@ def check_and_create_alerts(user_id, systolic, diastolic):
                 action_url="/bp",
                 trigger_value=s
             )
-            db.session.add(alert)
-            db.session.commit()
+            alert.save()
+            # db.session.commit()  # Firestore auto-commits
     elif s >= 160 or d >= 100:
-        existing = Alert.query.filter_by(
-            user_id=user_id,
-            alert_type="warning",
-            category="bp",
-            is_dismissed=False
-        ).first()
+        existing = (Alert.get_all(filters={"user_id": user_id, "alert_type": "warning", "category": "bp", "is_dismissed": False}, limit=1) or [None])[0]
         if not existing:
             alert = Alert(
                 user_id=user_id,
@@ -68,8 +56,8 @@ def check_and_create_alerts(user_id, systolic, diastolic):
                         f"Review your salt intake, ensure medicine is taken, and track regularly.",
                 trigger_value=s
             )
-            db.session.add(alert)
-            db.session.commit()
+            alert.save()
+            # db.session.commit()  # Firestore auto-commits
 
 
 # ============================================================
@@ -83,20 +71,24 @@ def tracker():
     user  = current_user
 
     # ── Latest reading ────────────────────────────────────────
-    latest = HealthMetric.query.filter_by(
-        user_id=user.id, metric_type="bp"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    latest_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "bp"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest = latest_list[0] if latest_list else None
 
     latest_status = "No Reading"
     if latest:
         latest_status, _ = get_bp_status(latest.value1, latest.value2)
 
     # ── Morning BP (first reading today) ─────────────────────
-    morning_bp = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "bp",
-        func.date(HealthMetric.recorded_at) == today
-    ).order_by(HealthMetric.recorded_at.asc()).first()
+    morning_bp_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "bp", "recorded_at_date": today},
+        order_by="recorded_at",
+        limit=1
+    )
+    morning_bp = morning_bp_list[0] if morning_bp_list else None
 
     morning_bp_str = (
         f"{int(morning_bp.value1)}/{int(morning_bp.value2)}"
@@ -104,12 +96,12 @@ def tracker():
     )
 
     # ── Evening BP (last reading today after 3pm) ─────────────
-    evening_bp = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "bp",
-        func.date(HealthMetric.recorded_at) == today,
-        extract('hour', HealthMetric.recorded_at) >= 15
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    evening_bp_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "bp", "recorded_at_date": today, "recorded_at_hour_gte": 15},
+        order_by="-recorded_at",
+        limit=1
+    )
+    evening_bp = evening_bp_list[0] if evening_bp_list else None
 
     evening_bp_str = (
         f"{int(evening_bp.value1)}/{int(evening_bp.value2)}"
@@ -120,11 +112,7 @@ def tracker():
     seven_days = []
     for i in range(6, -1, -1):
         day_d    = today - timedelta(days=i)
-        day_rdgs = HealthMetric.query.filter(
-            HealthMetric.user_id == user.id,
-            HealthMetric.metric_type == "bp",
-            func.date(HealthMetric.recorded_at) == day_d
-        ).all()
+        day_rdgs = HealthMetric.get_all(filters={"user_id": user.id, "metric_type": "bp", "recorded_at_date": day_d})
 
         if day_rdgs:
             avg_sys   = round(sum(r.value1 for r in day_rdgs if r.value1) / len(day_rdgs), 0)
@@ -141,19 +129,13 @@ def tracker():
         })
 
     # ── All readings (history) ────────────────────────────────
-    readings = HealthMetric.query.filter_by(
-        user_id=user.id, metric_type="bp"
-    ).order_by(HealthMetric.recorded_at.desc()).limit(50).all()
+    readings = HealthMetric.get_all(filters={"user_id": user.id, "metric_type": "bp"}, order_by="-recorded_at", limit=50)
 
     # ── Streak ────────────────────────────────────────────────
     streak = 0
     check  = today
     for _ in range(365):
-        exists = HealthMetric.query.filter(
-            HealthMetric.user_id == user.id,
-            HealthMetric.metric_type == "bp",
-            func.date(HealthMetric.recorded_at) == check
-        ).first()
+        exists = (HealthMetric.get_all(filters={"user_id": user.id, "metric_type": "bp", "recorded_at_date": check}, limit=1) or [None])[0]
         if exists:
             streak += 1
             check  -= timedelta(days=1)
@@ -162,11 +144,7 @@ def tracker():
 
     # ── 30-day stats ──────────────────────────────────────────
     thirty_ago = datetime.utcnow() - timedelta(days=30)
-    recent_30  = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "bp",
-        HealthMetric.recorded_at >= thirty_ago
-    ).all()
+    recent_30  = HealthMetric.get_all(filters={"user_id": user.id, "metric_type": "bp", "recorded_at_gte": thirty_ago})
 
     avg_sys_30 = avg_dia_30 = None
     days_normal = days_high = 0
@@ -245,17 +223,18 @@ def add_bp():
 
     # Save
     metric = HealthMetric(
-        user_id     = current_user.id,
-        metric_type = "bp",
-        value1     = sys_val,
-        value2     = dia_val,
-        value3     = pulse_val,
-        unit        = "mmHg",
-        notes       = notes or None,
-        source      = "manual"
+        user_id      = current_user.id,
+        metric_type  = "bp",
+        value1       = sys_val,
+        value2       = dia_val,
+        value3       = pulse_val,
+        unit         = "mmHg",
+        notes        = notes or None,
+        source       = "manual",
+        recorded_at  = datetime.now(timezone.utc)
     )
-    db.session.add(metric)
-    db.session.commit()
+    metric.save()
+    # db.session.commit()  # Firestore auto-commits
 
 
     # Check for alerts
@@ -270,17 +249,17 @@ def add_bp():
 # DELETE BP READING
 # ============================================================
 
-@bp_bp.route("/delete/<int:bp_id>")
+@bp_bp.route("/delete/<bp_id>")
 @login_required
 def delete_bp(bp_id):
-    metric = HealthMetric.query.filter_by(
-        id=bp_id,
-        user_id=current_user.id,
-        metric_type="bp"
-    ).first_or_404()
+    metric = HealthMetric.get_by_id_or_404(bp_id)
+    # Verify ownership
+    if metric.user_id != current_user.id or metric.metric_type != "bp":
+        from flask import abort
+        abort(404)
 
-    db.session.delete(metric)
-    db.session.commit()
+    metric.delete()
+    # db.session.commit()  # Firestore auto-commits
     flash("BP reading deleted.", "info")
     return redirect(url_for("bp.tracker"))
 
@@ -299,16 +278,12 @@ def chart_data():
 
     for i in range(days - 1, -1, -1):
         d      = today - timedelta(days=i)
-        rdgs   = HealthMetric.query.filter(
-            HealthMetric.user_id == current_user.id,
-            HealthMetric.metric_type == "bp",
-            func.date(HealthMetric.recorded_at) == d
-        ).all()
+        rdgs   = HealthMetric.get_all(filters={"user_id": current_user.id, "metric_type": "bp", "recorded_at_date": d})
 
         if rdgs:
             data.append({
                 "day":   d.strftime("%d %b"),
-                "sys":   round(sum(r.valu1 for r in rdgs if r.value1) / len(rdgs), 0),
+                "sys":   round(sum(r.value1 for r in rdgs if r.value1) / len(rdgs), 0),
                 "dia":   round(sum(r.value2 for r in rdgs if r.value2) / len(rdgs), 0),
                 "pulse": round(sum(r.value3 for r in rdgs if r.value3) / max(1, sum(1 for r in rdgs if r.value3)), 0) if any(r.value3 for r in rdgs) else None,
             })
@@ -330,9 +305,7 @@ def export_bp():
     import io
     from flask import make_response
 
-    readings = HealthMetric.query.filter_by(
-        user_id=current_user.id, metric_type="bp"
-    ).order_by(HealthMetric.recorded_at.desc()).all()
+    readings = HealthMetric.get_all(filters={"user_id": current_user.id, "metric_type": "bp"}, order_by="-recorded_at")
 
     output = io.StringIO()
     writer = csv.writer(output)

@@ -1,32 +1,18 @@
 # ============================================================
-# routes/api/tracker_api.py — All Health Trackers API (APK)
-# BP, Weight, Water, Sugar, Sleep, Steps, Heart Rate
-# EXACT timestamps saved on every entry
-# IMPORTANT:
-# HealthMetric model columns:
-#   user_id, metric_type, value1, value2, value3, unit, source, notes, recorded_at
+# routes/api/tracker_api.py — Health Tracker API for APK
 # ============================================================
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_current_user
-from datetime import datetime, timedelta
-from zoneinfo import ZoneInfo
-from sqlalchemy import func
+from datetime import datetime, date, timedelta
 
-from extensions import db
-from models import HealthMetric, SleepLog, StepLog, HeartRateLog
+from models import (
+    HealthMetric, StepLog, SleepLog, UserHealthProfile
+)
+
+from models import now_ist, today_ist
 
 tracker_api_bp = Blueprint("tracker_api", __name__)
-
-IST = ZoneInfo("Asia/Kolkata")
-
-
-def now_ist():
-    return datetime.now(IST)
-
-
-def today_ist():
-    return now_ist().date()
 
 
 def ok(data=None, msg="Success", code=200):
@@ -36,62 +22,18 @@ def ok(data=None, msg="Success", code=200):
     return jsonify(r), code
 
 
-def err(msg="Error", code=400):
+def err(msg, code=400):
     return jsonify({"success": False, "message": msg}), code
 
 
-def _hm_kwargs(v1=None, v2=None, v3=None):
-    data = {}
-    if v1 is not None:
-        data["value1"] = v1
-    if v2 is not None:
-        data["value2"] = v2
-    if v3 is not None:
-        data["value3"] = v3
-    return data
+def _hm_get(metric, idx, default=None):
+    """Get metric value by index (value1, value2, value3)."""
+    return getattr(metric, f"value{idx}", default)
 
 
-def _hm_get(metric, which=1, default=None):
-    field = {1: "value1", 2: "value2", 3: "value3"}.get(which)
-    if not field:
-        return default
-    return getattr(metric, field, default)
-
-
-def _hm_sum_expr(which=1):
-    field = {1: "value1", 2: "value2", 3: "value3"}.get(which)
-    return getattr(HealthMetric, field)
-
-
-def _check_and_push(user, metric_type, value1, value2=None):
-    from utils.reminder_engine import create_alert_notification
-
-    if metric_type == "bp" and value1 is not None and value2 is not None:
-        s, d = float(value1), float(value2)
-        if s >= 180 or d >= 120:
-            create_alert_notification(
-                user, "emergency", "bp",
-                "🚨 BP Crisis Detected",
-                f"BP {int(s)}/{int(d)} mmHg is at CRISIS level. Rest and see a doctor immediately.",
-                sound="urgent"
-            )
-        elif s >= 160 or d >= 100:
-            create_alert_notification(
-                user, "warning", "bp",
-                "⚠️ High BP Reading",
-                f"BP {int(s)}/{int(d)} mmHg is significantly elevated. Review medicine and salt intake.",
-                sound="health_alert"
-            )
-
-    elif metric_type == "sugar" and value1 is not None:
-        if float(value1) >= 200:
-            create_alert_notification(
-                user, "warning", "sugar",
-                "⚠️ High Blood Sugar",
-                f"Fasting sugar {int(float(value1))} mg/dL is high. Consult your doctor.",
-                sound="health_alert"
-            )
-
+# ============================================================
+# BP ENDPOINTS
+# ============================================================
 
 @tracker_api_bp.route("/bp", methods=["POST"])
 @jwt_required()
@@ -99,42 +41,31 @@ def add_bp():
     user = get_current_user()
     data = request.get_json() or {}
 
-    systolic = data.get("systolic")
-    diastolic = data.get("diastolic")
-    pulse = data.get("pulse")
-    notes = data.get("notes", "")
-
     try:
-        sys_val = float(systolic)
-        dia_val = float(diastolic)
-        if not (60 <= sys_val <= 250):
-            return err("Systolic must be 60–250")
-        if not (40 <= dia_val <= 150):
-            return err("Diastolic must be 40–150")
+        systolic = int(data.get("systolic", 0))
+        diastolic = int(data.get("diastolic", 0))
+        pulse = data.get("pulse")
+        if pulse is not None:
+            pulse = int(pulse)
     except (TypeError, ValueError):
-        return err("Valid systolic and diastolic required", 422)
+        return err("Systolic and diastolic are required integers", 422)
 
-    pulse_val = None
-    if pulse not in (None, "", 0, "0"):
-        try:
-            pulse_val = float(pulse)
-        except (TypeError, ValueError):
-            pulse_val = None
+    if not (60 <= systolic <= 250) or not (30 <= diastolic <= 150):
+        return err("Invalid BP values", 422)
 
     m = HealthMetric(
         user_id=user.id,
         metric_type="bp",
+        value1=systolic,
+        value2=diastolic,
+        value3=pulse,
         unit="mmHg",
-        notes=notes or None,
-        source="manual",
-        recorded_at=now_ist(),
-        **_hm_kwargs(sys_val, dia_val, pulse_val)
+        source="manual"
     )
-    db.session.add(m)
-    db.session.commit()
+    m.save()
+    # db.session.commit()  # Firestore auto-commits
 
-    _check_and_push(user, "bp", sys_val, dia_val)
-    return ok(m.to_dict(), "BP reading saved", 201)
+    return ok(m.to_dict(), "BP saved", 201)
 
 
 @tracker_api_bp.route("/bp", methods=["GET"])
@@ -144,11 +75,10 @@ def get_bp():
     days = request.args.get("days", 7, type=int) or 7
     since = now_ist() - timedelta(days=days)
 
-    readings = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "bp",
-        HealthMetric.recorded_at >= since
-    ).order_by(HealthMetric.recorded_at.desc()).all()
+    readings = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "bp", "recorded_at_gte": since},
+        order_by="-recorded_at"
+    )
 
     latest = readings[0] if readings else None
 
@@ -169,23 +99,39 @@ def get_bp():
         "count": len(readings),
         "days": days,
     })
-
-
-@tracker_api_bp.route("/bp/<int:metric_id>", methods=["DELETE"])
-@jwt_required()
-def delete_bp(metric_id):
     user = get_current_user()
-    m = HealthMetric.query.filter_by(
-        id=metric_id,
-        user_id=user.id,
-        metric_type="bp"
-    ).first()
-    if not m:
-        return err("Reading not found", 404)
-    db.session.delete(m)
-    db.session.commit()
-    return ok(msg="BP reading deleted")
+    data = request.get_json() or {}
 
+    try:
+        systolic = int(data.get("systolic", 0))
+        diastolic = int(data.get("diastolic", 0))
+        pulse = data.get("pulse")
+        if pulse is not None:
+            pulse = int(pulse)
+    except (TypeError, ValueError):
+        return err("Systolic and diastolic are required integers", 422)
+
+    if not (60 <= systolic <= 250) or not (30 <= diastolic <= 150):
+        return err("Invalid BP values", 422)
+
+    m = HealthMetric(
+        user_id=user.id,
+        metric_type="bp",
+        value1=systolic,
+        value2=diastolic,
+        value3=pulse,
+        unit="mmHg",
+        source="manual"
+    )
+    m.save()
+    # db.session.commit()  # Firestore auto-commits
+
+    return ok(m.to_dict(), "BP saved", 201)
+
+
+# ============================================================
+# WEIGHT ENDPOINTS
+# ============================================================
 
 @tracker_api_bp.route("/weight", methods=["POST"])
 @jwt_required()
@@ -194,27 +140,22 @@ def add_weight():
     data = request.get_json() or {}
 
     try:
-        w = float(data.get("weight_kg", 0))
-        if not (20 <= w <= 300):
-            return err("Weight must be 20–300 kg")
+        weight = float(data.get("weight_kg", 0))
+        if not (20 <= weight <= 300):
+            return err("Weight must be 20–300 kg", 422)
     except (TypeError, ValueError):
         return err("Valid weight required", 422)
 
     m = HealthMetric(
         user_id=user.id,
         metric_type="weight",
+        value1=weight,
         unit="kg",
-        notes=data.get("notes", "") or None,
-        source="manual",
-        recorded_at=now_ist(),
-        **_hm_kwargs(w)
+        source="manual"
     )
-    db.session.add(m)
+    m.save()
+    # db.session.commit()  # Firestore auto-commits
 
-    if user.health_profile:
-        user.health_profile.current_weight_kg = w
-
-    db.session.commit()
     return ok(m.to_dict(), "Weight saved", 201)
 
 
@@ -225,16 +166,17 @@ def get_weight():
     days = request.args.get("days", 30, type=int) or 30
     since = now_ist() - timedelta(days=days)
 
-    readings = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "weight",
-        HealthMetric.recorded_at >= since
-    ).order_by(HealthMetric.recorded_at.asc()).all()
+    readings = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "weight", "recorded_at_gte": since},
+        order_by="recorded_at"
+    )
 
-    latest = HealthMetric.query.filter_by(
-        user_id=user.id,
-        metric_type="weight"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
+    latest_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "weight"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest = latest_list[0] if latest_list else None
 
     change = None
     if len(readings) >= 2:
@@ -264,31 +206,9 @@ def get_weight():
     })
 
 
-@tracker_api_bp.route("/water", methods=["POST"])
-@jwt_required()
-def add_water():
-    user = get_current_user()
-    data = request.get_json() or {}
-
-    try:
-        amount = float(data.get("amount_litres", 0))
-        if not (0.05 <= amount <= 5.0):
-            return err("Amount must be 0.05–5.0 litres")
-    except (TypeError, ValueError):
-        return err("Valid amount required", 422)
-
-    m = HealthMetric(
-        user_id=user.id,
-        metric_type="water",
-        unit="litres",
-        source="manual",
-        recorded_at=now_ist(),
-        value1=amount
-    )
-    db.session.add(m)
-    db.session.commit()
-    return ok(m.to_dict(), f"{amount}L water logged", 201)
-
+# ============================================================
+# WATER ENDPOINTS
+# ============================================================
 
 @tracker_api_bp.route("/water/today", methods=["GET"])
 @jwt_required()
@@ -296,17 +216,15 @@ def get_water_today():
     user = get_current_user()
     today = today_ist()
 
-    total = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "water",
-        func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
+    water_today_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "water", "recorded_at_date": today}
+    )
+    total = sum(h.value1 for h in water_today_list if h.value1)
 
-    logs = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "water",
-        func.date(HealthMetric.recorded_at) == today
-    ).order_by(HealthMetric.recorded_at.desc()).all()
+    logs = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "water", "recorded_at_date": today},
+        order_by="-recorded_at"
+    )
 
     target = user.goals.target_water_litres if user.goals else 2.5
     pct = min(100, int((float(total) / target) * 100)) if target else 0
@@ -314,11 +232,10 @@ def get_water_today():
     week = []
     for i in range(6, -1, -1):
         d = today - timedelta(days=i)
-        t = HealthMetric.query.filter(
-            HealthMetric.user_id == user.id,
-            HealthMetric.metric_type == "water",
-            func.date(HealthMetric.recorded_at) == d
-        ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
+        water_d_list = HealthMetric.get_all(
+            filters={"user_id": user.id, "metric_type": "water", "recorded_at_date": d}
+        )
+        t = sum(h.value1 for h in water_d_list if h.value1)
 
         week.append({
             "day": d.strftime("%a"),
@@ -336,6 +253,36 @@ def get_water_today():
     })
 
 
+@tracker_api_bp.route("/water", methods=["POST"])
+@jwt_required()
+def add_water():
+    user = get_current_user()
+    data = request.get_json() or {}
+
+    try:
+        amount = float(data.get("amount_litres", 0))
+        if not (0.05 <= amount <= 5.0):
+            return err("Amount must be 0.05–5.0 litres")
+    except (TypeError, ValueError):
+        return err("Valid amount required", 422)
+
+    m = HealthMetric(
+        user_id=user.id,
+        metric_type="water",
+        value1=amount,
+        unit="L",
+        source="manual"
+    )
+    m.save()
+    # db.session.commit()  # Firestore auto-commits
+
+    return ok(m.to_dict(), "Water saved", 201)
+
+
+# ============================================================
+# SUGAR ENDPOINTS
+# ============================================================
+
 @tracker_api_bp.route("/sugar", methods=["POST"])
 @jwt_required()
 def add_sugar():
@@ -344,44 +291,22 @@ def add_sugar():
 
     fasting = data.get("fasting")
     post_meal = data.get("post_meal")
-    notes = data.get("notes", "")
 
-    if fasting in (None, "") and post_meal in (None, ""):
-        return err("At least one reading required", 422)
-
-    f_val = p_val = None
-
-    if fasting not in (None, ""):
-        try:
-            f_val = float(fasting)
-            if not (20 <= f_val <= 600):
-                return err("Fasting sugar must be 20–600")
-        except (TypeError, ValueError):
-            return err("Invalid fasting value", 422)
-
-    if post_meal not in (None, ""):
-        try:
-            p_val = float(post_meal)
-            if not (20 <= p_val <= 800):
-                return err("Post-meal sugar must be 20–800")
-        except (TypeError, ValueError):
-            return err("Invalid post-meal value", 422)
+    if fasting is None and post_meal is None:
+        return err("At least one of fasting or post_meal required", 422)
 
     m = HealthMetric(
         user_id=user.id,
         metric_type="sugar",
+        value1=fasting,
+        value2=post_meal,
         unit="mg/dL",
-        notes=notes or None,
-        source="manual",
-        recorded_at=now_ist(),
-        value1=f_val,
-        value2=p_val
+        source="manual"
     )
-    db.session.add(m)
-    db.session.commit()
+    m.save()
+    # db.session.commit()  # Firestore auto-commits
 
-    _check_and_push(user, "sugar", f_val)
-    return ok(m.to_dict(), "Sugar reading saved", 201)
+    return ok(m.to_dict(), "Sugar saved", 201)
 
 
 @tracker_api_bp.route("/sugar", methods=["GET"])
@@ -389,83 +314,25 @@ def add_sugar():
 def get_sugar():
     user = get_current_user()
     days = request.args.get("days", 30, type=int) or 30
-    since = now_ist() - timedelta(days=days)
+    since = today_ist() - timedelta(days=days)
 
-    readings = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "sugar",
-        HealthMetric.recorded_at >= since
-    ).order_by(HealthMetric.recorded_at.desc()).all()
+    readings = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "sugar", "recorded_at_gte": since},
+        order_by="-recorded_at"
+    )
 
     latest = readings[0] if readings else None
-    status = "No Reading"
-
-    if latest and _hm_get(latest, 1) is not None:
-        f = _hm_get(latest, 1)
-        if f < 100:
-            status = "Normal"
-        elif f < 126:
-            status = "Pre-Diabetic"
-        else:
-            status = "Diabetes Range"
 
     return ok({
         "readings": [r.to_dict() for r in readings],
         "latest": latest.to_dict() if latest else None,
-        "status": status,
+        "count": len(readings),
     })
 
 
-@tracker_api_bp.route("/sleep", methods=["POST"])
-@jwt_required()
-def add_sleep():
-    user = get_current_user()
-    data = request.get_json() or {}
-
-    sleep_time = data.get("sleep_time", "")
-    wake_time = data.get("wake_time", "")
-    duration_hours = data.get("duration_hours")
-    quality = data.get("quality")
-    interruptions = data.get("interruptions", 0)
-    mood_on_wake = data.get("mood_on_wake", "")
-    notes = data.get("notes", "")
-    log_date_str = data.get("log_date", str(today_ist()))
-
-    try:
-        log_date = datetime.strptime(log_date_str, "%Y-%m-%d").date()
-    except ValueError:
-        log_date = today_ist()
-
-    if not duration_hours and sleep_time and wake_time:
-        try:
-            sh, sm = map(int, sleep_time.split(":"))
-            wh, wm = map(int, wake_time.split(":"))
-            sleep_mins = sh * 60 + sm
-            wake_mins = wh * 60 + wm
-            if wake_mins < sleep_mins:
-                wake_mins += 24 * 60
-            duration_hours = round((wake_mins - sleep_mins) / 60, 1)
-        except Exception:
-            pass
-
-    existing = SleepLog.query.filter_by(user_id=user.id, log_date=log_date).first()
-    if existing:
-        sl = existing
-    else:
-        sl = SleepLog(user_id=user.id, log_date=log_date)
-        db.session.add(sl)
-
-    sl.sleep_time = sleep_time or sl.sleep_time
-    sl.wake_time = wake_time or sl.wake_time
-    sl.duration_hours = float(duration_hours) if duration_hours else sl.duration_hours
-    sl.quality = int(quality) if quality else sl.quality
-    sl.interruptions = int(interruptions) if interruptions else sl.interruptions
-    sl.mood_on_wake = mood_on_wake or sl.mood_on_wake
-    sl.notes = notes or sl.notes
-
-    db.session.commit()
-    return ok(sl.to_dict(), "Sleep log saved", 201)
-
+# ============================================================
+# SLEEP ENDPOINTS
+# ============================================================
 
 @tracker_api_bp.route("/sleep", methods=["GET"])
 @jwt_required()
@@ -474,10 +341,10 @@ def get_sleep():
     days = request.args.get("days", 14, type=int) or 14
     since = today_ist() - timedelta(days=days)
 
-    logs = SleepLog.query.filter(
-        SleepLog.user_id == user.id,
-        SleepLog.log_date >= since
-    ).order_by(SleepLog.log_date.desc()).all()
+    logs = SleepLog.get_all(
+        filters={"user_id": user.id, "log_date_gte": since},
+        order_by="-log_date"
+    )
 
     avg_hrs = avg_quality = None
     if logs:
@@ -499,48 +366,55 @@ def get_sleep():
     })
 
 
-@tracker_api_bp.route("/steps", methods=["POST"])
+@tracker_api_bp.route("/sleep", methods=["POST"])
 @jwt_required()
-def add_steps():
+def add_sleep():
     user = get_current_user()
     data = request.get_json() or {}
 
     try:
-        steps = int(data.get("steps", 0))
-        if steps < 0:
-            return err("Steps cannot be negative")
-    except (TypeError, ValueError):
-        return err("Valid steps count required", 422)
+        sleep_time = data.get("sleep_time")
+        wake_time = data.get("wake_time")
+        quality = int(data.get("quality", 0)) if data.get("quality") else None
+        interruptions = int(data.get("interruptions", 0))
+        duration = float(data.get("duration_hours", 0)) if data.get("duration_hours") else None
+        notes = data.get("notes")
+        log_date = data.get("log_date")
+        if log_date:
+            log_date = datetime.strptime(log_date, "%Y-%m-%d").date()
+        else:
+            log_date = date.today()
 
-    log_date_str = data.get("log_date", str(today_ist()))
-    try:
-        log_date = datetime.strptime(log_date_str, "%Y-%m-%d").date()
-    except ValueError:
-        log_date = today_ist()
+        if not duration and sleep_time and wake_time:
+            sh, sm = map(int, sleep_time.split(":"))
+            wh, wm = map(int, wake_time.split(":"))
+            sleep_mins = sh * 60 + sm
+            wake_mins = wh * 60 + wm
+            if wake_mins < sleep_mins:
+                wake_mins += 24 * 60
+            duration = round((wake_mins - sleep_mins) / 60, 1)
 
-    h = user.health_profile.height_cm if user.health_profile and user.health_profile.height_cm else 170
-    w = user.health_profile.current_weight_kg if user.health_profile and user.health_profile.current_weight_kg else 70
-    stride_m = (h * 0.414) / 100
-    distance_km = round(steps * stride_m / 1000, 2)
-    calories = int((steps / 100) * (3.5 * w * 3.5 / 200))
+        sl = SleepLog(
+            user_id=user.id,
+            log_date=log_date,
+            sleep_time=sleep_time,
+            wake_time=wake_time,
+            duration_hours=duration,
+            quality=quality,
+            interruptions=interruptions,
+            notes=data.get("notes"),
+        )
+        sl.save()
+        # db.session.commit()  # Firestore auto-commits
 
-    goal_steps = user.goals.target_steps if user.goals else 8000
+        return ok(sl.to_dict(), "Sleep saved", 201)
+    except Exception as e:
+        return err(f"Invalid data: {e}", 422)
 
-    existing = StepLog.query.filter_by(user_id=user.id, log_date=log_date).first()
-    if existing:
-        sl = existing
-    else:
-        sl = StepLog(user_id=user.id, log_date=log_date, goal_steps=goal_steps)
-        db.session.add(sl)
 
-    sl.steps = steps
-    sl.distance_km = distance_km
-    sl.calories_burned = calories
-    sl.goal_achieved = steps >= goal_steps
-
-    db.session.commit()
-    return ok(sl.to_dict(), "Steps saved", 201)
-
+# ============================================================
+# STEPS ENDPOINTS
+# ============================================================
 
 @tracker_api_bp.route("/steps", methods=["GET"])
 @jwt_required()
@@ -549,18 +423,20 @@ def get_steps():
     days = request.args.get("days", 7, type=int) or 7
     since = today_ist() - timedelta(days=days)
 
-    logs = StepLog.query.filter(
-        StepLog.user_id == user.id,
-        StepLog.log_date >= since
-    ).order_by(StepLog.log_date.desc()).all()
+    logs = StepLog.get_all(
+        filters={"user_id": user.id, "log_date_gte": since},
+        order_by="-log_date"
+    )
 
     goal = user.goals.target_steps if user.goals else 8000
-    today_log = StepLog.query.filter_by(
-        user_id=user.id,
-        log_date=today_ist()
-    ).first()
+    today_log_list = StepLog.get_all(
+        filters={"user_id": user.id, "log_date": today_ist()},
+        limit=1
+    )
+    today_log = today_log_list[0] if today_log_list else None
 
     today_steps = today_log.steps if today_log else 0
+    goal = user.goals.target_steps if user.goals else 8000
     today_pct = min(100, int(today_steps / goal * 100)) if goal else 0
 
     h = user.health_profile.height_cm if user.health_profile and user.health_profile.height_cm else 170
@@ -574,10 +450,153 @@ def get_steps():
         "today_pct": today_pct,
         "today_calories": today_cal,
         "today_distance": today_dist,
-        "goal_steps": goal,
-        "goal_achieved": today_steps >= goal,
     })
 
+
+@tracker_api_bp.route("/steps", methods=["POST"])
+@jwt_required()
+def add_steps():
+    user = get_current_user()
+    data = request.get_json() or {}
+
+    try:
+        steps = int(data.get("steps", 0))
+        if not (0 <= steps <= 100000):
+            return err("Steps must be 0–100,000", 422)
+    except (TypeError, ValueError):
+        return err("Valid steps required", 422)
+
+    h = user.health_profile.height_cm if user.health_profile and user.health_profile.height_cm else 170
+    w = user.health_profile.current_weight_kg if user.health_profile and user.health_profile.current_weight_kg else 70
+    dist = round(steps * (h * 0.414 / 100) / 1000, 2)
+    cals = int((steps / 100) * (3.5 * w * 3.5 / 200))
+
+    sl = StepLog(
+        user_id=user.id,
+        log_date=data.get("log_date", date.today()),
+        steps=steps,
+        distance_km=dist,
+        calories_burned=cals
+    )
+    sl.save()
+    # db.session.commit()  # Firestore auto-commits
+
+    return ok(sl.to_dict(), "Steps saved", 201)
+
+
+# ============================================================
+# SUMMARY ENDPOINT
+# ============================================================
+
+@tracker_api_bp.route("/summary/today", methods=["GET"])
+@jwt_required()
+def today_summary():
+    user = get_current_user()
+    today = today_ist()
+
+    latest_bp_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "bp"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest_bp = latest_bp_list[0] if latest_bp_list else None
+
+    latest_weight_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "weight"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest_weight = latest_weight_list[0] if latest_weight_list else None
+
+    water_today_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "water", "recorded_at_date": today}
+    )
+    water_today = sum(h.value1 for h in water_today_list if h.value1)
+
+    steps_today_list = StepLog.get_all(
+        filters={"user_id": user.id, "log_date": today},
+        limit=1
+    )
+    steps_today = steps_today_list[0] if steps_today_list else None
+
+    sleep_today_list = SleepLog.get_all(
+        filters={"user_id": user.id, "log_date": today},
+        limit=1
+    )
+    sleep_today = sleep_today_list[0] if sleep_today_list else None
+
+    latest_sugar_list = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "sugar"},
+        order_by="-recorded_at",
+        limit=1
+    )
+    latest_sugar = latest_sugar_list[0] if latest_sugar_list else None
+
+    goals = user.goals
+    water_target = goals.target_water_litres if goals else 2.5
+    steps_target = goals.target_steps if goals else 8000
+
+    bp_status = "No Reading"
+    if latest_bp:
+        s = _hm_get(latest_bp, 1, 0) or 0
+        d = _hm_get(latest_bp, 2, 0) or 0
+        if s < 120 and d < 80: bp_status = "Normal"
+        elif s < 130 and d < 80: bp_status = "Elevated"
+        elif s < 140 or d < 90: bp_status = "High Stage 1"
+        elif s < 180 or d < 120: bp_status = "High Stage 2"
+        else: bp_status = "Crisis"
+
+    weight_status = "No Reading"
+    if latest_weight:
+        weight_status = f"{latest_weight.value1} kg"
+
+    sugar_status = "No Reading"
+    if latest_sugar:
+        f = _hm_get(latest_sugar, 1, 0) or 0
+        if f < 100: sugar_status = "Normal"
+        elif f < 126: sugar_status = "Pre-Diabetic"
+        else: sugar_status = "Diabetes Range"
+
+    steps_today = steps_today_list[0].steps if steps_today_list else 0
+    steps_today_list = StepLog.get_all(filters={"user_id": user.id, "log_date": today}, limit=1)
+    steps_today = steps_today_list[0].steps if steps_today_list else 0
+    step_goal = user.goals.target_steps if user.goals else 8000
+
+    water_target = user.goals.target_water_litres if user.goals else 2.5
+    water_pct = min(100, int(water_today / water_target * 100)) if water_target else 0
+
+    return ok({
+        "bp": {
+            "latest": latest_bp.to_dict() if latest_bp else None,
+            "status": bp_status,
+        },
+        "weight": {
+            "latest": latest_weight.to_dict() if latest_weight else None,
+            "status": weight_status,
+        },
+        "water": {
+            "today_total": round(water_today, 2),
+            "target": water_target,
+            "pct": water_pct,
+        },
+        "steps": {
+            "today": today_steps,
+            "target": steps_target,
+            "pct": steps_pct,
+        },
+        "sleep": {
+            "latest": sleep_today.to_dict() if sleep_today else None,
+        },
+        "sugar": {
+            "latest": latest_sugar.to_dict() if latest_sugar else None,
+            "status": sugar_status,
+        },
+    })
+
+
+# ============================================================
+# HEART RATE ENDPOINTS (Optional)
+# ============================================================
 
 @tracker_api_bp.route("/heart-rate", methods=["POST"])
 @jwt_required()
@@ -588,23 +607,25 @@ def add_heart_rate():
     try:
         bpm = int(data.get("bpm", 0))
         if not (30 <= bpm <= 220):
-            return err("BPM must be 30–220")
+            return err("BPM must be 30–220", 422)
     except (TypeError, ValueError):
         return err("Valid BPM required", 422)
 
-    reading_type = data.get("reading_type", "resting")
-    notes = data.get("notes", "")
+    hr_type = data.get("type", "resting")
+    notes = data.get("notes")
 
-    hr = HeartRateLog(
+    hr = HealthMetric(
         user_id=user.id,
-        bpm=bpm,
-        reading_type=reading_type,
-        log_date=today_ist(),
-        notes=notes or None,
-        recorded_at=now_ist()
+        metric_type="heart_rate",
+        value1=bpm,
+        value2=hr_type,
+        unit="bpm",
+        notes=notes,
+        source="manual"
     )
-    db.session.add(hr)
-    db.session.commit()
+    hr.save()
+    # db.session.commit()  # Firestore auto-commits
+
     return ok(hr.to_dict(), "Heart rate saved", 201)
 
 
@@ -612,135 +633,18 @@ def add_heart_rate():
 @jwt_required()
 def get_heart_rate():
     user = get_current_user()
-    days = request.args.get("days", 7, type=int) or 7
+    days = request.args.get("days", 30, type=int) or 30
     since = today_ist() - timedelta(days=days)
 
-    logs = HeartRateLog.query.filter(
-        HeartRateLog.user_id == user.id,
-        HeartRateLog.log_date >= since
-    ).order_by(HeartRateLog.recorded_at.desc()).all()
+    readings = HealthMetric.get_all(
+        filters={"user_id": user.id, "metric_type": "heart_rate", "recorded_at_gte": since},
+        order_by="-recorded_at"
+    )
 
-    resting = [l for l in logs if l.reading_type == "resting"]
-    avg_resting = round(sum(l.bpm for l in resting) / len(resting), 0) if resting else None
-
-    return ok({
-        "logs": [l.to_dict() for l in logs],
-        "avg_resting": avg_resting,
-        "latest": logs[0].to_dict() if logs else None,
-    })
-
-
-@tracker_api_bp.route("/<string:metric_type>/<int:metric_id>", methods=["DELETE"])
-@jwt_required()
-def delete_metric(metric_type, metric_id):
-    user = get_current_user()
-    m = HealthMetric.query.filter_by(
-        id=metric_id,
-        user_id=user.id,
-        metric_type=metric_type
-    ).first()
-    if not m:
-        return err("Entry not found", 404)
-    db.session.delete(m)
-    db.session.commit()
-    return ok(msg="Entry deleted")
-
-
-@tracker_api_bp.route("/summary/today", methods=["GET"])
-@jwt_required()
-def today_summary():
-    user = get_current_user()
-    today = today_ist()
-
-    latest_bp = HealthMetric.query.filter_by(
-        user_id=user.id,
-        metric_type="bp"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
-
-    latest_weight = HealthMetric.query.filter_by(
-        user_id=user.id,
-        metric_type="weight"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
-
-    water_today = HealthMetric.query.filter(
-        HealthMetric.user_id == user.id,
-        HealthMetric.metric_type == "water",
-        func.date(HealthMetric.recorded_at) == today
-    ).with_entities(func.sum(HealthMetric.value1)).scalar() or 0
-
-    steps_today = StepLog.query.filter_by(user_id=user.id, log_date=today).first()
-    sleep_today = SleepLog.query.filter_by(user_id=user.id, log_date=today).first()
-
-    latest_sugar = HealthMetric.query.filter_by(
-        user_id=user.id,
-        metric_type="sugar"
-    ).order_by(HealthMetric.recorded_at.desc()).first()
-
-    goals = user.goals
-    water_target = goals.target_water_litres if goals else 2.5
-    steps_target = goals.target_steps if goals else 8000
-
-    bp_status = "No Reading"
-    if latest_bp:
-        s = _hm_get(latest_bp, 1, 0) or 0
-        d = _hm_get(latest_bp, 2, 0) or 0
-        if s < 120 and d < 80:
-            bp_status = "Normal"
-        elif s < 130 and d < 80:
-            bp_status = "Elevated"
-        elif s < 140 or d < 90:
-            bp_status = "High Stage 1"
-        elif s < 180 or d < 120:
-            bp_status = "High Stage 2"
-        else:
-            bp_status = "Crisis"
+    latest = readings[0] if readings else None
 
     return ok({
-        "date": str(today),
-        "bp": {
-            "latest": latest_bp.to_dict() if latest_bp else None,
-            "status": bp_status,
-        },
-        "weight": {
-            "latest": latest_weight.to_dict() if latest_weight else None,
-            "bmi": user.bmi,
-            "bmi_status": user.bmi_status,
-        },
-        "water": {
-            "total": round(float(water_today), 2),
-            "target": water_target,
-            "pct": min(100, int(float(water_today) / water_target * 100)) if water_target else 0,
-        },
-        "steps": {
-            "count": steps_today.steps if steps_today else 0,
-            "calories": steps_today.calories_burned if steps_today else 0,
-            "distance": steps_today.distance_km if steps_today else 0,
-            "target": steps_target,
-            "pct": min(100, int((steps_today.steps if steps_today else 0) / steps_target * 100)) if steps_target else 0,
-        },
-        "sleep": sleep_today.to_dict() if sleep_today else None,
-        "sugar": latest_sugar.to_dict() if latest_sugar else None,
+        "readings": [r.to_dict() for r in readings],
+        "latest": latest.to_dict() if latest else None,
+        "count": len(readings),
     })
-
-
-@tracker_api_bp.route("/ai/chat", methods=["POST"])
-@jwt_required()
-def ai_health_chat():
-    from utils.gemini_ai import ask_gemini
-
-    user = get_current_user()
-    data = request.get_json() or {}
-    message = data.get("message", "")
-
-    if not message:
-        return err("Message required", 422)
-
-    history = data.get("history", [])
-    response = ask_gemini(message, user=user, history=history)
-
-    if response["success"]:
-        return ok({
-            "reply": response["reply"],
-            "user_message": message
-        })
-    return err(response["reply"], 500)

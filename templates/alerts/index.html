@@ -145,7 +145,7 @@
         </div>
         <div class="alert-message">{{ alert.message }}</div>
         <div class="alert-meta">
-          <span class="alert-time">{{ alert.created_at.strftime('%d %b %Y · %I:%M %p') }}</span>
+          <span class="alert-time">{{ alert.created_at | safe_strftime("%d %b %Y · %I:%M %p") }}</span>
           {% if alert.category %}
           <span class="alert-cat-chip">{{ alert.category|title }}</span>
           {% endif %}
@@ -193,7 +193,7 @@
       <div class="alert-title" style="color:var(--text-muted);">{{ alert.title }}</div>
       <div class="alert-message" style="font-size:12px;">{{ alert.message[:120] }}{% if alert.message|length > 120 %}...{% endif %}</div>
       <div class="alert-meta">
-        <span class="alert-time">{{ alert.created_at.strftime('%d %b %Y') }}</span>
+        <span class="alert-time">{{ alert.created_at | safe_strftime("%d %b %Y") }}</span>
         <span class="alert-cat-chip">{{ alert.alert_type|title }}</span>
         <span class="alert-cat-chip" style="background:#dcfce7;color:#166534;">Read ✓</span>
       </div>

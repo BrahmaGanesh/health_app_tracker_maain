@@ -593,7 +593,7 @@
       <div class="sc-val red">{{ latest.value1|int }}/{{ latest.value2|int }}</div>
       <div class="sc-sub">
         Pulse: <strong>{{ latest.value_3|int if latest.value_3 else '—' }}</strong> bpm ·
-        {{ latest.recorded_at.strftime('%d %b %I:%M %p') }}
+        {{ latest.recorded_at | safe_strftime("%d %b %I:%M %p") if latest.recorded_at else '—' }}
       </div>
       <span class="bp-badge {{ 'normal' if latest_status == 'Normal' else ('elevated' if latest_status == 'Elevated' else ('critical' if latest_status == 'Crisis' else 'high')) }}">
         {% if latest_status == 'Normal' %}✅{% elif latest_status == 'Elevated' %}⚠️{% else %}🔴{% endif %}
@@ -672,7 +672,7 @@
     </div>
     <div class="form-card-body">
 
-      <form method="POST" action="{{ url_for('bp.add_bp') }}" id="bpForm">
+      <form method="POST" action="{{ url_for('bp.add_bp") }}" id="bpForm">
 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="bp-inputs-row">
           <div class="bp-input-group">
@@ -722,7 +722,7 @@
         <!-- Notes (optional) -->
         <div style="margin-bottom:14px;">
           <label class="bp-input-label">Notes (optional)</label>
-          <input type="text" name="notes" class="form-control" style="font-size:13px; box-shadow:inset 0 1px 2px rgba(15,23,42,0.03), 0 4px 10px rgba(15,23,42,0.03); transition:box-shadow 180ms var(--bp-ease), transform 180ms var(--bp-ease);" placeholder="e.g. After exercise, feeling stressed..." onfocus="this.style.transform='translateY(-1px)';this.style.boxShadow='0 0 0 3px rgba(239,68,68,0.10), 0 10px 20px rgba(239,68,68,0.06)'" onblur="this.style.transform='translateY(0)';this.style.boxShadow='inset 0 1px 2px rgba(15,23,42,0.03), 0 4px 10px rgba(15,23,42,0.03)'">
+          <input type="text" name="notes" id="bpNotesInput" class="form-control" style="font-size:13px; box-shadow:inset 0 1px 2px rgba(15,23,42,0.03), 0 4px 10px rgba(15,23,42,0.03); transition:box-shadow 180ms var(--bp-ease), transform 180ms var(--bp-ease);" placeholder="e.g. After exercise, feeling stressed...">
         </div>
 
         <button type="submit" class="bp-save-btn">
@@ -794,8 +794,8 @@
                         else ('critical' if status_text == 'Crisis' else 'high')) %}
         <tr>
           <td>
-            <div style="font-weight:600; font-size:14px;">{{ r.recorded_at.strftime('%d %b %Y') }}</div>
-            <div style="font-size:11px; color:var(--text-muted);">{{ r.recorded_at.strftime('%I:%M %p') }}</div>
+            <div style="font-weight:600; font-size:14px;">{{ r.recorded_at_dt | safe_strftime("%d %b %Y") if r.recorded_at_dt else '—' }}</div>
+            <div style="font-size:11px; color:var(--text-muted);">{{ r.recorded_at_dt | safe_strftime("%d %b %Y") if r.recorded_at_dt else '—'   }}</div>
           </td>
           <td>
             <span class="bp-reading-combined {% if r.value1 >= 160 %}high{% endif %}">
@@ -923,7 +923,7 @@ async function loadChart(days, btn) {
   document.querySelectorAll('.chart-range-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   try {
-    const resp = await fetch(`{{ url_for('bp.chart_data') }}?days=${days}`);
+    const resp = await fetch(`{{ url_for('bp.chart_data") }}?days=${days}`);
     const data = await resp.json();
     buildChart(data);
   } catch(e) { console.error('Chart load failed', e); }

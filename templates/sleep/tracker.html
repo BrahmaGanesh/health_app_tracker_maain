@@ -163,7 +163,7 @@
     {% set pct = ((log.duration_hours or 0) / 10 * 100)|round|int %}
     {% set bar_color = '#7c3aed' if (log.duration_hours or 0) >= target_hrs else '#f59e0b' %}
     <div class="hist-row">
-      <div class="hist-date">{{ log.log_date.strftime('%d %b') }}</div>
+      <div class="hist-date">{{ log.log_date | safe_strftime("%d %b") }}</div>
       <div class="hist-bar-bg"><div class="hist-bar-fill" style="width:{{ pct }}%;background:{{ bar_color }};"></div></div>
       <div class="hist-hrs">{{ log.duration_hours or '—' }}h</div>
       <div class="hist-quality">{{ quality_emoji.get(log.quality,'—') }} {{ log.quality_label if log.quality else '' }}</div>
@@ -178,7 +178,7 @@
 
 {% block extra_js %}
 <script>
-const chartData = {{ chart_data | tojson }};
+const chartData = {{ chart_data | default([]) | tojson }};
 const targetHrs = {{ target_hrs }};
 
 if (chartData.length) {

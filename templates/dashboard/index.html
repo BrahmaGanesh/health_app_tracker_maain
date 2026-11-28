@@ -473,14 +473,15 @@
 <!-- ════════════════════════════════════════════════════════
      HERO GREETING
 ════════════════════════════════════════════════════════ -->
-{% set hour = today.strftime('%H')|int %}
+{% set hour = (today.strftime('%H')|int) if today else 12 %}
 {% set greeting = 'Good morning' if hour < 12 else ('Good afternoon' if hour < 17 else 'Good evening') %}
+{% set today_str = today | safe_strftime("%A, %d %B %Y") if today else today %}
 
 <div class="dash-hero animate-fadeIn">
   <div class="hero-left">
     <div class="hero-greeting">{{ greeting }} 👋</div>
     <div class="hero-name">{{ user.name }}, <span>let's check in.</span></div>
-    <div class="hero-subtitle">{{ today.strftime('%A, %d %B %Y') }} · {{ day_name }}'s plan is ready</div>
+    <div class="hero-subtitle">{{ today_str }} · {{ day_name }}'s plan is ready</div>
     <div class="hero-tags">
       {% for cname in conditions[:4] %}
         <span class="hero-tag">{{ cname }}</span>
@@ -545,7 +546,7 @@
     <div class="sc-label">❤️ Blood Pressure</div>
     {% if latest_bp %}
       <div class="sc-value red">{{ latest_bp.value1|int }}/{{ latest_bp.value2|int }}</div>
-      <div class="sc-sub">Pulse: {{ latest_bp.value3|int if latest_bp.value3 else '—' }} bpm · {{ latest_bp.recorded_at.strftime('%d %b') }}</div>
+      <div class="sc-sub">Pulse: {{ latest_bp.value3|int if latest_bp.value3 else '—' }} bpm · {{ latest_bp.recorded_at | safe_strftime("%d %b") }}</div>
       <span class="sc-badge {% if latest_bp_status == 'Normal' %}badge-success{% elif latest_bp_status == 'Elevated' %}badge-warning{% else %}badge-danger{% endif %}">
         {{ latest_bp_status }}
       </span>
@@ -833,7 +834,7 @@
 {% block extra_js %}
 <script>
 // ── BP Trend Chart ────────────────────────────────────────
-const bpData = {{ bp_chart_data | tojson }};
+const bpData = {{ bp_chart_data | default([]) | tojson }};
 
 if (bpData.length && document.getElementById('bpTrendChart')) {
   new Chart(document.getElementById('bpTrendChart'), {

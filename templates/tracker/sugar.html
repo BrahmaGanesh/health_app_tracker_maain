@@ -110,8 +110,8 @@
   <div class="met-card">
     <div class="mc-lbl">🌅 Fasting Sugar</div>
     <div class="mc-val orange">{{ latest.value_1|int if latest and latest.value_1 else '—' }}<span style="font-size:14px;color:var(--text-muted);">mg/dL</span></div>
-    <div class="mc-sub">{{ latest.recorded_at.strftime('%d %b %Y') if latest else 'No reading' }}</div>
-    <span class="mc-badge {% if not latest or not latest.value_1 %}normal{% elif latest.value_1 < 100 %}normal{% elif latest.value_1 < 126 %}prediab{% else %}diab{% endif %}">
+    <div class="mc-sub">{{ latest.recorded_at | safe_strftime("%d %b %Y') if latest else 'No reading' }}</div>
+    <span class="mc-badge {{ 'normal' if not latest or not latest.value_1 else ('normal' if latest.value_1 < 100 else ('prediab' if latest.value_1 < 126 else 'diab')) }}">
       {% if latest and latest.value_1 %}
         {% if latest.value_1 < 100 %}✅ Normal{% elif latest.value_1 < 126 %}⚠️ Pre-Diabetic{% else %}🔴 High{% endif %}
       {% else %}No reading{% endif %}
@@ -121,7 +121,7 @@
     <div class="mc-lbl">🍽️ Post-Meal Sugar</div>
     <div class="mc-val yellow">{{ latest.value_2|int if latest and latest.value_2 else '—' }}<span style="font-size:14px;color:var(--text-muted);">mg/dL</span></div>
     <div class="mc-sub">2 hours after eating</div>
-    <span class="mc-badge {% if not latest or not latest.value_2 %}normal{% elif latest.value_2 < 140 %}normal{% elif latest.value_2 < 200 %}prediab{% else %}diab{% endif %}">
+    <span class="mc-badge {{ 'normal' if not latest or not latest.value_2 else ('normal' if latest.value_2 < 140 else ('prediab' if latest.value_2 < 200 else 'diab')) }}">
       {% if latest and latest.value_2 %}
         {% if latest.value_2 < 140 %}✅ Normal{% elif latest.value_2 < 200 %}⚠️ Elevated{% else %}🔴 High{% endif %}
       {% else %}No reading{% endif %}
@@ -187,7 +187,7 @@
         <div style="background:{% if cat=='success' %}var(--success-light){% else %}var(--danger-light){% endif %};border-radius:10px;padding:10px 14px;margin-bottom:14px;font-size:13px;font-weight:600;color:{% if cat=='success' %}#166534{% else %}#991b1b{% endif %};">{{ msg }}</div>
         {% endfor %}{% endif %}
       {% endwith %}
-      <form method="POST" action="{{ url_for('tracker.sugar') }}">
+      <form method="POST" action="{{ url_for('tracker.sugar") }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div style="margin-bottom:14px;">
           <label class="form-label">Fasting Sugar (before eating)</label>
@@ -251,8 +251,8 @@
         {% set scls = 'normal' if status == 'Normal' else ('prediab' if status == 'Pre-Diabetic' else 'diab') %}
         <tr>
           <td>
-            <div style="font-weight:600;">{{ r.recorded_at.strftime('%d %b %Y') }}</div>
-            <div style="font-size:11px;color:var(--text-muted);">{{ r.recorded_at.strftime('%I:%M %p') }}</div>
+            <div style="font-weight:600;">{{ r.recorded_at | safe_strftime("%d %b %Y") if r.recorded_at else '—'   }}</div>
+            <div style="font-size:11px;color:var(--text-muted);">{{ r.recorded_at | safe_strftime("%d %b %Y") if r.recorded_at else '—'   }}</div>
           </td>
           <td style="font-family:'DM Mono',monospace;font-size:15px;font-weight:600;{% if f and f >= 126 %}color:#ea580c;{% endif %}">
             {{ f|int if f else '—' }}{% if f %}<span style="font-size:11px;color:var(--text-muted);">mg/dL</span>{% endif %}
@@ -284,7 +284,7 @@
 
 {% block extra_js %}
 <script>
-const sugarData = {{ chart_data | tojson }};
+const sugarData = {{ chart_data | default([]) | tojson }};
 if (sugarData.length) HealthCharts.createSugarChart('sugarChart', sugarData);
 
 function updateSugarPreview(type, val) {

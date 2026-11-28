@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 
-from extensions import db
 from models import (
     now_ist,
     today_ist,
@@ -69,7 +68,7 @@ def _auto_create_followup(user_id, visit):
         notes=f"Follow-up for: {visit.diagnosis or 'Previous visit'}",
         member_id=visit.member_id,
     )
-    db.session.add(appt)
+    appt.save()
 
 
 @modules_api_bp.route("/lab-tests/", methods=["GET", "POST"])
@@ -81,21 +80,18 @@ def lab_tests():
         test_category = request.args.get("test_category", "blood_sugar")
         member_id = request.args.get("member_id", type=int)
 
-        q = LabTest.query.filter_by(user_id=uid, test_category=test_category)
+        filters = {"user_id": uid, "test_category": test_category}
         if member_id:
-            q = q.filter_by(member_id=member_id)
+            filters["member_id"] = member_id
 
-        tests = q.order_by(LabTest.test_date.desc()).limit(50).all()
-        return jsonify({
-            "success": True,
-            "data": {
-                "tests": [t.to_dict() for t in tests],
-                "latest": tests[0].to_dict() if tests else None,
-                "test_category": test_category,
-            }
-        })
+        tests = LabTest.get_all(
+            filters=filters,
+            order_by="-test_date",
+            limit=50
+        )
+        return jsonify({"success": True, "tests": [t.to_dict() for t in tests]})
 
-    d = _json()
+    d = request.get_json(silent=True) or {}
     if not d.get("test_category") or d.get("value") is None:
         return jsonify({"success": False, "message": "test_category and value required"}), 400
 
@@ -109,102 +105,23 @@ def lab_tests():
         notes=d.get("notes", "").strip() or None,
         member_id=d.get("member_id"),
     )
-    db.session.add(test)
-
-    db.session.add(HealthTimelineEvent(
-        user_id=uid,
-        event_type="lab",
-        event_date=test.test_date,
-        title=f"🧪 {test.test_category.replace('_', ' ').title()}: {test.value} {test.unit or ''}".strip(),
-        description=f"Lab: {test.lab_name or 'Unknown'} · Status: {getattr(test, 'status', 'Recorded')}",
-        icon="🧪",
-        member_id=test.member_id,
-    ))
-    db.session.commit()
-
-    return jsonify({
-        "success": True,
-        "message": "Lab test saved",
-        "data": test.to_dict()
-    }), 201
+    test.save()
+    return jsonify({"success": True, "test": test.to_dict()}), 201
 
 
-@modules_api_bp.route("/lab-tests/<int:tid>", methods=["DELETE"])
+@modules_api_bp.route("/lab-tests/<int:test_id>", methods=["GET", "DELETE"])
 @jwt_required()
-def delete_lab_test(tid):
+def lab_test_detail(test_id):
     uid = get_jwt_identity()
-    t = LabTest.query.filter_by(id=tid, user_id=uid).first_or_404()
-    db.session.delete(t)
-    db.session.commit()
-    return jsonify({"success": True, "message": "Deleted"})
+    test = LabTest.get_by_id_or_404(test_id)
+    if test.user_id != uid:
+        return jsonify({"success": False, "message": "Forbidden"}), 403
 
+    if request.method == "GET":
+        return jsonify({"success": True, "test": test.to_dict()})
 
-@modules_api_bp.route("/lab-tests/types", methods=["GET"])
-@jwt_required()
-def lab_test_types():
-    uid = get_jwt_identity()
-    rows = db.session.query(LabTest.test_category).filter_by(user_id=uid).distinct().all()
-    return jsonify({"success": True, "data": {"types": [r[0] for r in rows]}})
-
-
-@modules_api_bp.route("/lab-tests/dashboard", methods=["GET"])
-@jwt_required()
-def lab_tests_dashboard():
-    uid = get_jwt_identity()
-    member_id = request.args.get("member_id", type=int)
-
-    q = LabTest.query.filter_by(user_id=uid)
-    if member_id:
-        q = q.filter_by(member_id=member_id)
-
-    tests = q.order_by(LabTest.test_date.desc()).limit(100).all()
-    latest = tests[0].to_dict() if tests else None
-
-    return jsonify({
-        "success": True,
-        "data": {
-            "total_tests": len(tests),
-            "latest": latest,
-            "tests": [t.to_dict() for t in tests[:20]],
-        }
-    })
-
-
-@modules_api_bp.route("/lab-tests/graph", methods=["GET"])
-@jwt_required()
-def lab_tests_graph():
-    uid = get_jwt_identity()
-    category = request.args.get("category", "blood_sugar")
-    period = request.args.get("period", "6m")
-    member_id = request.args.get("member_id", type=int)
-
-    q = LabTest.query.filter_by(user_id=uid, test_category=category)
-    if member_id:
-        q = q.filter_by(member_id=member_id)
-
-    tests = q.order_by(LabTest.test_date.asc()).all()
-
-    days_map = {"1m": 30, "3m": 90, "6m": 180, "1y": 365}
-    cutoff = today_ist() - timedelta(days=days_map.get(period, 180))
-
-    points = []
-    for t in tests:
-        if t.test_date and t.test_date >= cutoff:
-            points.append({
-                "date": str(t.test_date),
-                "value": t.value,
-                "unit": t.unit,
-                "lab_name": t.lab_name,
-            })
-
-    return jsonify({
-        "success": True,
-        "data": {
-            "category": category,
-            "period": period,
-            "points": points,
-        }
-    })
+    test.delete()
+    return jsonify({"success": True, "message": "Lab test deleted"})
 
 
 @modules_api_bp.route("/doctor-visits/", methods=["GET", "POST"])
@@ -214,59 +131,75 @@ def doctor_visits():
 
     if request.method == "GET":
         member_id = request.args.get("member_id", type=int)
-        q = DoctorVisit.query.filter_by(user_id=uid)
+        filters = {"user_id": uid}
         if member_id:
-            q = q.filter_by(member_id=member_id)
+            filters["member_id"] = member_id
 
-        visits = q.order_by(DoctorVisit.visit_date.desc()).limit(50).all()
-        return jsonify({"success": True, "data": {"visits": [v.to_dict() for v in visits]}})
+        visits = DoctorVisit.get_all(filters=filters, order_by="-visit_date", limit=50)
+        return jsonify({"success": True, "visits": [v.to_dict() for v in visits]})
 
-    d = _json()
+    d = request.get_json(silent=True) or {}
+    if not d.get("doctor_name") or not d.get("visit_date"):
+        return jsonify({"success": False, "message": "doctor_name and visit_date required"}), 400
+
     visit = DoctorVisit(
         user_id=uid,
+        doctor_name=d["doctor_name"].strip(),
+        specialty=d.get("specialty", "").strip() or None,
+        clinic_name=d.get("clinic_name", "").strip() or None,
         visit_date=_parse_date(d.get("visit_date")),
-        doctor_name=d.get("doctor_name", "").strip() or None,
-        hospital=d.get("hospital", "").strip() or None,
-        specialization=d.get("specialization", "").strip() or None,
+        reason=d.get("reason", "").strip() or None,
         diagnosis=d.get("diagnosis", "").strip() or None,
-        prescription=d.get("prescription", "").strip() or None,
-        follow_up_date=_parse_date(d.get("follow_up_date")) if d.get("follow_up_date") else None,
-        cost=d.get("cost"),
+        treatment=d.get("treatment", "").strip() or None,
         notes=d.get("notes", "").strip() or None,
-        member_id=d.get("member_id"),
+        next_visit_date=_parse_date(d.get("follow_up_date")),
+        member_id=d.get("member_id", type=int),
     )
-    db.session.add(visit)
-
-    db.session.add(HealthTimelineEvent(
-        user_id=uid,
-        event_type="visit",
-        event_date=visit.visit_date,
-        title=f"👨‍⚕️ Dr. {visit.doctor_name or 'Unknown'} — {visit.hospital or 'Visit'}",
-        description=visit.diagnosis or "",
-        icon="👨‍⚕️",
-        member_id=visit.member_id,
-    ))
-    db.session.commit()
-
-    if visit.follow_up_date:
-        _auto_create_followup(uid, visit)
-        db.session.commit()
-
-    return jsonify({
-        "success": True,
-        "message": "Visit saved",
-        "data": visit.to_dict()
-    }), 201
+    visit.save()
+    _auto_create_followup(uid, visit)
+    return jsonify({"success": True, "visit": visit.to_dict()}), 201
 
 
-@modules_api_bp.route("/doctor-visits/<int:vid>", methods=["DELETE"])
+@modules_api_bp.route("/doctor-visits/<int:visit_id>", methods=["GET", "PUT", "DELETE"])
 @jwt_required()
-def delete_doctor_visit(vid):
+def doctor_visit_detail(visit_id):
     uid = get_jwt_identity()
-    v = DoctorVisit.query.filter_by(id=vid, user_id=uid).first_or_404()
-    db.session.delete(v)
-    db.session.commit()
-    return jsonify({"success": True, "message": "Deleted"})
+    visit = DoctorVisit.get_by_id_or_404(visit_id)
+    if visit.user_id != uid:
+        return jsonify({"success": False, "message": "Forbidden"}), 403
+
+    if request.method == "GET":
+        return jsonify({"success": True, "visit": visit.to_dict()})
+
+    if request.method == "DELETE":
+        visit.delete()
+        return jsonify({"success": True, "message": "Deleted"})
+
+    d = _json()
+    if "doctor_name" in d:
+        visit.doctor_name = d["doctor_name"].strip()
+    if "specialty" in d:
+        visit.specialty = d["specialty"].strip() or None
+    if "clinic_name" in d:
+        visit.clinic_name = d["clinic_name"].strip() or None
+    if "visit_date" in d:
+        visit.visit_date = _parse_date(d["visit_date"])
+    if "reason" in d:
+        visit.reason = d["reason"].strip() or None
+    if "diagnosis" in d:
+        visit.diagnosis = d["diagnosis"].strip() or None
+    if "treatment" in d:
+        visit.treatment = d["treatment"].strip() or None
+    if "notes" in d:
+        visit.notes = d["notes"].strip() or None
+    if "follow_up_date" in d:
+        visit.follow_up_date = _parse_date(d["follow_up_date"])
+    if "member_id" in d:
+        visit.member_id = d.get("member_id")
+
+    visit.save()
+    _auto_create_followup(uid, visit)
+    return jsonify({"success": True, "visit": visit.to_dict()})
 
 
 @modules_api_bp.route("/appointments/", methods=["GET", "POST"])
@@ -276,477 +209,218 @@ def appointments():
 
     if request.method == "GET":
         member_id = request.args.get("member_id", type=int)
-        upcoming_only = request.args.get("upcoming", "false").lower() == "true"
-
-        q = Appointment.query.filter_by(user_id=uid)
+        status = request.args.get("status", "")
+        filters = {"user_id": uid}
         if member_id:
-            q = q.filter_by(member_id=member_id)
-        if upcoming_only:
-            q = q.filter(
-                Appointment.appointment_date >= today_ist(),
-                Appointment.completed.is_(False)
-            )
+            filters["member_id"] = member_id
+        if status:
+            filters["status"] = status
 
-        appts = q.order_by(Appointment.appointment_date.asc()).limit(100).all()
-        return jsonify({
-            "success": True,
-            "data": {
-                "appointments": [a.to_dict() for a in appts],
-                "upcoming_count": sum(1 for a in appts if not a.completed),
-            }
-        })
+        appts = Appointment.get_all(filters=filters, order_by="appointment_date", limit=50)
+        return jsonify({"success": True, "appointments": [a.to_dict() for a in appts]})
 
     d = _json()
-    if not d.get("title") or not d.get("appointment_date"):
-        return jsonify({"success": False, "message": "title and appointment_date required"}), 400
+    if not d.get("doctor_name") or not d.get("appointment_date"):
+        return jsonify({"success": False, "message": "doctor_name and appointment_date required"}), 400
 
     appt = Appointment(
         user_id=uid,
-        title=d["title"].strip(),
-        appointment_type=d.get("appointment_type", "doctor"),
+        doctor_name=d["doctor_name"].strip(),
+        specialty=d.get("specialty", "").strip() or None,
+        clinic_name=d.get("clinic_name", "").strip() or None,
         appointment_date=_parse_date(d["appointment_date"]),
-        appointment_time=d.get("appointment_time"),
-        location=d.get("location", "").strip() or None,
+        appointment_time=d.get("appointment_time", "").strip() or None,
+        appointment_type=d.get("appointment_type", "in_person"),
+        status=d.get("status", "scheduled"),
+        reason=d.get("reason", "").strip() or None,
         notes=d.get("notes", "").strip() or None,
-        member_id=d.get("member_id"),
+        reminder_enabled=d.get("reminder_enabled", True),
+        reminder_minutes_before=d.get("reminder_minutes_before", 60),
+        member_id=d.get("member_id", type=int),
     )
-    db.session.add(appt)
-    db.session.commit()
-
-    return jsonify({
-        "success": True,
-        "message": "📅 Appointment saved",
-        "data": appt.to_dict()
-    }), 201
+    appt.save()
+    return jsonify({"success": True, "appointment": appt.to_dict()}), 201
 
 
-@modules_api_bp.route("/appointments/<int:aid>", methods=["PUT", "DELETE"])
+@modules_api_bp.route("/appointments/<int:appt_id>", methods=["GET", "PUT", "DELETE"])
 @jwt_required()
-def appointment_detail(aid):
+def appointment_detail(appt_id):
     uid = get_jwt_identity()
-    appt = Appointment.query.filter_by(id=aid, user_id=uid).first_or_404()
+    appt = Appointment.get_by_id_or_404(appt_id)
+    if appt.user_id != uid:
+        return jsonify({"success": False, "message": "Forbidden"}), 403
+
+    if request.method == "GET":
+        return jsonify({"success": True, "appointment": appt.to_dict()})
 
     if request.method == "DELETE":
-        db.session.delete(appt)
-        db.session.commit()
+        appt.delete()
         return jsonify({"success": True, "message": "Deleted"})
 
     d = _json()
-    for f in ["title", "appointment_type", "appointment_time", "location", "notes"]:
-        if f in d:
-            setattr(appt, f, d[f])
-
+    if "doctor_name" in d:
+        appt.doctor_name = d["doctor_name"].strip()
+    if "specialty" in d:
+        appt.specialty = d["specialty"].strip() or None
+    if "clinic_name" in d:
+        appt.clinic_name = d["clinic_name"].strip() or None
     if "appointment_date" in d:
         appt.appointment_date = _parse_date(d["appointment_date"])
+    if "appointment_time" in d:
+        appt.appointment_time = d["appointment_time"]
+    if "appointment_type" in d:
+        appt.appointment_type = d["appointment_type"]
+    if "status" in d:
+        appt.status = d["status"]
+    if "reason" in d:
+        appt.reason = d["reason"].strip() or None
+    if "notes" in d:
+        appt.notes = d["notes"].strip() or None
+    if "reminder_enabled" in d:
+        appt.reminder_enabled = d["reminder_enabled"]
+    if "reminder_minutes_before" in d:
+        appt.reminder_minutes_before = d["reminder_minutes_before"]
+    if "member_id" in d:
+        appt.member_id = d.get("member_id")
 
-    db.session.commit()
-    return jsonify({"success": True, "data": appt.to_dict()})
-
-
-@modules_api_bp.route("/appointments/<int:aid>/complete", methods=["POST"])
-@jwt_required()
-def complete_appointment(aid):
-    uid = get_jwt_identity()
-    appt = Appointment.query.filter_by(id=aid, user_id=uid).first_or_404()
-    appt.completed = True
-
-    db.session.add(HealthTimelineEvent(
-        user_id=uid,
-        event_type="visit",
-        event_date=today_ist(),
-        title=f"✅ Completed: {appt.title}",
-        icon="✅",
-    ))
-    db.session.commit()
-    return jsonify({"success": True, "message": "✅ Appointment completed"})
+    appt.save()
+    return jsonify({"success": True, "appointment": appt.to_dict()})
 
 
-@modules_api_bp.route("/emergency-card/", methods=["GET", "POST"])
+@modules_api_bp.route("/emergency-card", methods=["GET", "POST", "PUT"])
 @jwt_required()
 def emergency_card():
     uid = get_jwt_identity()
-
-    user = User.query.get(uid)
-    card = EmergencyCard.query.filter_by(user_id=uid).first()
-
-    medicines = []
-    try:
-        from models import Medicine
-        medicines = [m.name for m in Medicine.query.filter_by(user_id=uid, is_active=True).limit(10).all()]
-    except Exception:
-        medicines = []
-
-    conditions = []
-    try:
-        if user and hasattr(user, "conditions") and user.conditions:
-            conditions = [
-                c.condition.name if getattr(c, "condition", None) else str(c)
-                for c in user.conditions
-            ]
-    except Exception:
-        conditions = []
+    card = EmergencyCard.get_one(filters={"user_id": uid})
 
     if request.method == "GET":
-        base_data = (
-            card.to_dict(user=user, conditions=conditions, medicines=medicines)
-            if card else {
-                "blood_group": None,
-                "allergies": None,
-                "emergency_contacts": None,
-                "organ_donor": False,
-                "additional_notes": None,
-            }
-        )
-
-        return jsonify({
-            "success": True,
-            "data": {
-                **base_data,
-                "name": getattr(user, "name", None),
-                "age": getattr(user, "age", None),
-                "conditions": conditions,
-                "medicines": medicines,
-            }
-        })
+        if not card:
+            return jsonify({"success": True, "card": None})
+        return jsonify({"success": True, "card": card.to_dict()})
 
     d = _json()
     if not card:
         card = EmergencyCard(user_id=uid)
-        db.session.add(card)
+        card.save()
 
-    card.blood_group = d.get("blood_group", card.blood_group)
-    card.allergies = d.get("allergies", card.allergies)
-    card.emergency_contacts = d.get("emergency_contacts", card.emergency_contacts)
-    card.organ_donor = d.get("organ_donor", card.organ_donor)
-    card.additional_notes = d.get("additional_notes", card.additional_notes)
+    for field in ["blood_group", "allergies", "chronic_conditions", "medications",
+                  "emergency_contact_name", "emergency_contact_phone", "doctor_name",
+                  "doctor_phone", "insurance_provider", "insurance_number", "notes"]:
+        if field in d:
+            setattr(card, field, d[field])
 
-    db.session.commit()
-    return jsonify({"success": True, "message": "Emergency card updated"})
+    card.save()
+    return jsonify({"success": True, "card": card.to_dict()})
 
 
-@modules_api_bp.route("/emergency-alerts/contacts", methods=["GET", "POST"])
+@modules_api_bp.route("/trusted-contacts", methods=["GET", "POST"])
 @jwt_required()
 def trusted_contacts():
     uid = get_jwt_identity()
 
     if request.method == "GET":
-        contacts = TrustedContact.query.filter_by(user_id=uid).all()
-        return jsonify({"success": True, "data": {"contacts": [c.to_dict() for c in contacts]}})
+        contacts = TrustedContact.get_all(filters={"user_id": uid})
+        return jsonify({"success": True, "contacts": [c.to_dict() for c in contacts]})
 
     d = _json()
-    if not d.get("name"):
-        return jsonify({"success": False, "message": "Contact name required"}), 400
+    if not d.get("name") or not d.get("phone"):
+        return jsonify({"success": False, "message": "name and phone required"}), 400
 
-    c = TrustedContact(
+    contact = TrustedContact(
         user_id=uid,
         name=d["name"].strip(),
-        phone=d.get("phone"),
-        email=d.get("email"),
-        relation=d.get("relation"),
-        notify_bp_crisis=d.get("notify_bp_crisis", True),
-        notify_missed_meds=d.get("notify_missed_meds", False),
+        relationship=d.get("relationship", "").strip() or None,
+        phone=d["phone"].strip(),
+        email=d.get("email", "").strip() or None,
+        is_primary=d.get("is_primary", False),
+        can_view_health_data=d.get("can_view_health_data", False),
+        can_receive_alerts=d.get("can_receive_alerts", False),
     )
-    db.session.add(c)
-    db.session.commit()
-
-    return jsonify({
-        "success": True,
-        "message": f"Contact {c.name} added",
-        "data": c.to_dict()
-    }), 201
+    contact.save()
+    return jsonify({"success": True, "contact": contact.to_dict()}), 201
 
 
-@modules_api_bp.route("/emergency-alerts/contacts/<int:cid>", methods=["DELETE"])
+@modules_api_bp.route("/trusted-contacts/<int:contact_id>", methods=["PUT", "DELETE"])
 @jwt_required()
-def delete_trusted_contact(cid):
+def trusted_contact_detail(contact_id):
     uid = get_jwt_identity()
-    c = TrustedContact.query.filter_by(id=cid, user_id=uid).first_or_404()
-    db.session.delete(c)
-    db.session.commit()
-    return jsonify({"success": True, "message": "Contact removed"})
+    contact = TrustedContact.get_by_id_or_404(contact_id)
+    if contact.user_id != uid:
+        return jsonify({"success": False, "message": "Forbidden"}), 403
+
+    if request.method == "DELETE":
+        contact.delete()
+        return jsonify({"success": True, "message": "Deleted"})
+
+    d = _json()
+    for field in ["name", "relationship", "phone", "email", "is_primary", "can_view_health_data", "can_receive_alerts"]:
+        if field in d:
+            setattr(contact, field, d[field])
+    contact.save()
+    return jsonify({"success": True, "contact": contact.to_dict()})
 
 
-@modules_api_bp.route("/timeline/", methods=["GET"])
+@modules_api_bp.route("/habits", methods=["GET", "POST"])
+@jwt_required()
+def habits():
+    uid = get_jwt_identity()
+
+    if request.method == "GET":
+        habit_type = request.args.get("type", "")
+        filters = {"user_id": uid}
+        if habit_type:
+            filters["habit_type"] = habit_type
+        logs = HabitLog.get_all(filters=filters, order_by="-log_date")
+        return jsonify({"success": True, "habits": [h.to_dict() for h in logs]})
+
+    d = _json()
+    if not d.get("habit_type"):
+        return jsonify({"success": False, "message": "habit_type required"}), 400
+
+    log = HabitLog(
+        user_id=uid,
+        habit_type=d["habit_type"],
+        status=d.get("status", "pending"),
+        value=d.get("value"),
+        notes=d.get("notes"),
+        log_date=_parse_date(d.get("log_date")),
+        completed_at=datetime.utcnow() if d.get("status") == "completed" else None,
+    )
+    log.save()
+    return jsonify({"success": True, "habit": log.to_dict()}), 201
+
+
+@modules_api_bp.route("/habits/<int:log_id>", methods=["PUT", "DELETE"])
+@jwt_required()
+def habit_detail(log_id):
+    uid = get_jwt_identity()
+    log = HabitLog.get_by_id_or_404(log_id)
+    if log.user_id != uid:
+        return jsonify({"success": False, "message": "Forbidden"}), 403
+
+    if request.method == "DELETE":
+        log.delete()
+        return jsonify({"success": True, "message": "Deleted"})
+
+    d = _json()
+    if "status" in d:
+        log.status = d["status"]
+        if d["status"] == "completed":
+            log.completed_at = datetime.utcnow()
+    if "value" in d:
+        log.value = d["value"]
+    if "notes" in d:
+        log.notes = d["notes"]
+    if "log_date" in d:
+        log.log_date = _parse_date(d["log_date"])
+    log.save()
+    return jsonify({"success": True, "habit": log.to_dict()})
+
+
+@modules_api_bp.route("/timeline", methods=["GET"])
 @jwt_required()
 def timeline():
     uid = get_jwt_identity()
-    member_id = request.args.get("member_id", type=int)
-    category = request.args.get("category")
-    page = request.args.get("page", 1, type=int)
-
-    q = HealthTimelineEvent.query.filter_by(user_id=uid)
-    if member_id:
-        q = q.filter_by(member_id=member_id)
-    if category:
-        q = q.filter_by(event_type=category)
-
-    events = q.order_by(HealthTimelineEvent.event_date.desc()).paginate(
-        page=page, per_page=30, error_out=False
-    )
-
-    return jsonify({
-        "success": True,
-        "data": {
-            "events": [e.to_dict() for e in events.items],
-            "total": events.total,
-            "page": page,
-            "pages": events.pages,
-        }
-    })
-
-
-@modules_api_bp.route("/claude/chat", methods=["POST"])
-@jwt_required()
-def ai_chat():
-    uid = get_jwt_identity()
-    d = _json()
-    message = d.get("message", "").strip()
-    history = d.get("history", [])
-
-    if not message:
-        return jsonify({"success": False, "message": "Message required"}), 400
-
-    try:
-        import anthropic
-
-        client = anthropic.Anthropic(
-            api_key=current_app.config.get("ANTHROPIC_API_KEY", "")
-        )
-
-        system = """You are HealthTrack's wellness assistant. You provide helpful, accurate, and compassionate
-health and wellness advice. Important rules:
-1. Always recommend consulting a doctor for medical diagnoses or treatment decisions
-2. Focus on general wellness, lifestyle, nutrition, and healthy habits
-3. Keep responses concise (2-4 sentences typically)
-4. For emergency symptoms (chest pain, stroke signs, etc.) always say: 'Call emergency services immediately'
-5. You know about BP management, diabetes, weight, sleep, and exercise"""
-
-        messages = []
-        for h in history[-8:]:
-            if h.get("role") in ("user", "assistant"):
-                messages.append({
-                    "role": h["role"],
-                    "content": h.get("content", "")
-                })
-
-        messages.append({"role": "user", "content": message})
-
-        resp = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=400,
-            system=system,
-            messages=messages,
-        )
-        reply = resp.content[0].text
-
-    except Exception:
-        reply = (
-            "I'm unable to connect to the AI service right now. "
-            "For health questions, please consult your doctor or a qualified healthcare professional."
-        )
-
-    return jsonify({"success": True, "data": {"reply": reply, "role": "assistant"}})
-
-
-@modules_api_bp.route("/ai-camera/food", methods=["POST"])
-@jwt_required()
-def analyze_food():
-    d = _json()
-    image = d.get("image", "")
-
-    if not image:
-        return jsonify({"success": False, "message": "image required"}), 400
-
-    if vision_model is None:
-        return jsonify({
-            "success": False,
-            "message": "AI vision analysis is not configured. Please set GEMINI_API_KEY environment variable."
-        }), 503
-
-    try:
-        if "," in image:
-            image = image.split(",", 1)[1]
-
-        image_bytes = base64.b64decode(image)
-
-        prompt = """
-Analyze this food image.
-
-Return ONLY valid JSON.
-
-{
-    "food_name":"",
-    "calories":0,
-    "protein_g":0,
-    "carbs_g":0,
-    "fat_g":0,
-    "sodium_mg":0,
-    "is_healthy_for_bp":true,
-    "notes":""
-}
-"""
-
-        response = vision_model.generate_content([
-            prompt,
-            {"mime_type": "image/jpeg", "data": image_bytes}
-        ])
-
-        text = response.text
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-
-        if match:
-            data = json.loads(match.group())
-        else:
-            data = {"food_name": "Unknown", "notes": text}
-
-    except Exception as e:
-        data = {"food_name": "Analysis unavailable", "notes": str(e)}
-
-    return jsonify({"success": True, "data": data})
-
-
-@modules_api_bp.route("/ai-camera/medicine", methods=["POST"])
-@jwt_required()
-def analyze_medicine():
-    d = _json()
-    image = d.get("image", "")
-
-    if not image:
-        return jsonify({"success": False, "message": "image required"}), 400
-
-    if vision_model is None:
-        return jsonify({
-            "success": False,
-            "message": "AI vision analysis is not configured. Please set GEMINI_API_KEY environment variable."
-        }), 503
-
-    try:
-        if "," in image:
-            image = image.split(",", 1)[1]
-
-        image_bytes = base64.b64decode(image)
-
-        prompt = """
-Identify the medicine shown in this image.
-
-Return ONLY valid JSON.
-
-{
-    "medicine_name":"",
-    "active_ingredient":"",
-    "common_uses":"",
-    "typical_dosage":"",
-    "important_warnings":"",
-    "requires_prescription":false
-}
-"""
-
-        response = vision_model.generate_content([
-            prompt,
-            {"mime_type": "image/jpeg", "data": image_bytes}
-        ])
-
-        text = response.text
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-
-        if match:
-            data = json.loads(match.group())
-        else:
-            data = {"medicine_name": "Unknown", "notes": text}
-
-    except Exception as e:
-        data = {"medicine_name": "Analysis unavailable", "notes": str(e)}
-
-    return jsonify({"success": True, "data": data})
-
-
-@modules_api_bp.route("/subscription/status", methods=["GET"])
-@jwt_required()
-def subscription_status():
-    uid = get_jwt_identity()
-    sub = UserSubscription.query.filter_by(user_id=uid).first()
-
-    if not sub:
-        sub = UserSubscription(user_id=uid, plan="free")
-        db.session.add(sub)
-        db.session.commit()
-
-    return jsonify({"success": True, "data": sub.to_dict()})
-
-
-@modules_api_bp.route("/subscription/verify", methods=["POST"])
-@jwt_required()
-def verify_purchase():
-    uid = get_jwt_identity()
-    d = _json()
-    purchase_token = d.get("purchase_token", "")
-    product_id = d.get("product_id", "")
-
-    plan_map = {
-        "healthtrack_premium_monthly": "premium",
-        "healthtrack_premium_yearly": "premium",
-        "healthtrack_family_monthly": "family",
-        "healthtrack_family_yearly": "family",
-    }
-    plan = plan_map.get(product_id, "free")
-
-    sub = UserSubscription.query.filter_by(user_id=uid).first()
-    if not sub:
-        sub = UserSubscription(user_id=uid)
-        db.session.add(sub)
-
-    sub.plan = plan
-    sub.purchase_token = purchase_token
-    sub.product_id = product_id
-    sub.expires_at = now_ist() + timedelta(days=30 if "monthly" in product_id else 365)
-
-    db.session.commit()
-    return jsonify({
-        "success": True,
-        "message": f"🎉 Upgraded to {plan.title()}!",
-        "data": sub.to_dict()
-    })
-
-
-@modules_api_bp.route("/subscription/cancel", methods=["POST"])
-@jwt_required()
-def cancel_subscription():
-    uid = get_jwt_identity()
-    sub = UserSubscription.query.filter_by(user_id=uid).first()
-    if sub:
-        sub.auto_renew = False
-        db.session.commit()
-    return jsonify({"success": True, "message": "Auto-renewal cancelled"})
-
-
-@modules_api_bp.route("/health-score/", methods=["GET"])
-@jwt_required()
-def health_score():
-    uid = get_jwt_identity()
-    from utils.health_score import calculate_health_score
-    score = calculate_health_score(uid)
-    return jsonify({"success": True, "data": score})
-
-
-@modules_api_bp.route("/health-score/history", methods=["GET"])
-@jwt_required()
-def health_score_history():
-    uid = get_jwt_identity()
-    days = request.args.get("days", 30, type=int)
-    from models import DailyHealthScore
-
-    since = today_ist() - timedelta(days=days)
-    scores = DailyHealthScore.query.filter(
-        DailyHealthScore.user_id == uid,
-        DailyHealthScore.date >= since
-    ).order_by(DailyHealthScore.date.asc()).all()
-
-    return jsonify({
-        "success": True,
-        "data": {
-            "scores": [
-                {"date": str(s.date), "score": s.total_score, "grade": s.grade}
-                for s in scores
-            ],
-        }
-    })
+    limit = request.args.get("limit", 50, type=int)
+    events = HealthTimelineEvent.get_all(filters={"user_id": uid}, order_by="-event_date", limit=limit)
+    return jsonify({"success": True, "events": [e.to_dict() for e in events]})

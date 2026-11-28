@@ -100,8 +100,8 @@
     <div class="log-row">
       <div class="log-icon">📧</div>
       <div class="log-info">
-        <div class="log-period">{{ log.period_start.strftime('%d %b') if log.period_start else '' }} – {{ log.period_end.strftime('%d %b %Y') if log.period_end else '' }}</div>
-        <div class="log-meta">Sent {{ log.sent_at.strftime('%d %b %Y, %I:%M %p') }} to {{ log.recipients or 'you' }}</div>
+        <div class="log-period">{{ log.period_start | safe_strftime("%d %b') if log.period_start else '' }} – {{ log.period_end | safe_strftime("%d %b %Y") if log.period_end else ''   }}</div>
+        <div class="log-meta">Sent {{ log.sent_at.strftime('%d %b %Y, %I:%M %p") }} to {{ log.recipients or 'you' }}</div>
       </div>
       {% if log.health_score %}
       <span style="font-family:'DM Mono',monospace;font-size:13px;font-weight:600;color:var(--sage);">{{ log.health_score|int }}/100</span>

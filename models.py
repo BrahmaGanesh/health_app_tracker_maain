@@ -1,758 +1,1061 @@
+# models.py
+# Firestore-compatible models for Flask + Firebase Auth.
+# Data is stored in Cloud Firestore. This file does not use SQLAlchemy.
+
 from datetime import datetime, date, timezone, timedelta
 import json
 
 from flask_login import UserMixin
-from extensions import db, bcrypt
 
 
-# ============================================================
-# IST DATE / TIME HELPERS
-# ============================================================
+# ---------------------------------------------------------------------------
+# Timezone helpers
+# ---------------------------------------------------------------------------
 
 IST = timezone(timedelta(hours=5, minutes=30))
 
 
 def now_ist():
-    return datetime.now(IST).replace(tzinfo=None)
+    """Return the current datetime in Indian Standard Time."""
+    return datetime.now(IST)
 
 
 def today_ist():
-    return datetime.now(IST).date()
+    """Return today's date in Indian Standard Time."""
+    return now_ist().date()
 
 
-def now_utc():
-    return datetime.now(timezone.utc).replace(tzinfo=None)
+# ---------------------------------------------------------------------------
+# Generic Firestore model base
+# ---------------------------------------------------------------------------
 
+class FirestoreModel:
+    """
+    Base model for Firestore documents.
 
-def to_ist_dt(dt):
-    if dt is None:
+    It accepts either:
+        Model({"id": "123", "name": "Test"})
+    or:
+        Model(id="123", name="Test")
+
+    Unknown fields are preserved, so route code can access fields such as:
+        item.user_id
+        item.title
+        item.created_at
+    even if they are not explicitly declared below.
+    """
+
+    COLLECTION = None
+    DEFAULTS = {}
+
+    def __init__(self, data=None, **kwargs):
+        incoming = dict(data or {})
+        incoming.update(kwargs)
+
+        self._data = {**self.DEFAULTS, **incoming}
+        self.id = self._data.get("id", "")
+
+    def __getattr__(self, name):
+        """
+        Called only when a normal attribute is not found.
+        Returns the value from the Firestore document data.
+        """
+        data = self.__dict__.get("_data", {})
+
+        if name in data:
+            return data[name]
+
+        raise AttributeError(
+            f"{self.__class__.__name__} has no attribute '{name}'"
+        )
+
+    def to_dict(self):
+        """Return a JSON-safe dictionary for Firestore and templates."""
+        result = {}
+
+        for key, value in self._data.items():
+            if isinstance(value, datetime):
+                result[key] = value.isoformat()
+            elif isinstance(value, date):
+                result[key] = value.isoformat()
+            else:
+                result[key] = value
+
+        result["id"] = self.id
+        return result
+
+    def update(self, updates=None, **kwargs):
+        """Update local model fields. Call save_document() to persist."""
+        updates = updates or {}
+        self._data.update(updates)
+        self._data.update(kwargs)
+
+        if "id" in self._data:
+            self.id = self._data["id"]
+
+    def get(self, key, default=None):
+        """Get a field value from the model data."""
+        return self._data.get(key, default)
+
+    # =====================
+    # Firestore Query Methods
+    # =====================
+
+    @classmethod
+    def get_by_id(cls, document_id):
+        """Get a document by its ID from Firestore.
+
+        Args:
+            document_id: The document ID to retrieve
+
+        Returns:
+            cls instance or None if not found
+        """
+        from services.firebase_admin import get_firebase_admin
+        firebase_admin = get_firebase_admin()
+        doc_ref = firebase_admin.firestore.collection(cls.COLLECTION).document(document_id)
+        doc = doc_ref.get()
+        if doc.exists:
+            data = doc.to_dict() or {}
+            data["id"] = doc.id
+            return cls(data)
         return None
-    if dt.tzinfo is None:
-        return dt
-    return dt.astimezone(IST).replace(tzinfo=None)
+
+    @classmethod
+    def get_all(cls, filters=None, order_by=None, limit=None):
+        """Get all documents from the collection with optional filtering and ordering.
+
+        Args:
+            filters: dict of {field: value} for equality filtering
+            order_by: field name to sort by (ascending)
+            limit: maximum number of results
+
+        Returns:
+            list of cls instances
+        """
+        from services.firebase_admin import get_firebase_admin
+        firebase_admin = get_firebase_admin()
+        collection_ref = firebase_admin.firestore.collection(cls.COLLECTION)
+
+        results = []
+        seen_ids = set()
+
+        docs = collection_ref.stream()
+        for doc in docs:
+            data = doc.to_dict()
+            data['id'] = doc.id
+
+            # Skip duplicates
+            if data['id'] in seen_ids:
+                continue
+            seen_ids.add(data['id'])
+
+            # Apply equality filters
+            if filters:
+                skip = False
+                for field, f_value in filters.items():
+                    val = data.get(field)
+                    if val != f_value:
+                        skip = True
+                        break
+                if skip:
+                    continue
+
+            results.append(cls(data))
+
+        # Apply ordering (Python-side sort)
+        if order_by:
+            results.sort(key=lambda x: getattr(x, order_by, None) or '')
+
+        # Apply limit
+        if limit and len(results) > limit:
+            results = results[:limit]
+
+        return results
+
+    @classmethod
+    def get_by_field(cls, field, value, order_by=None):
+        """Get documents where a field equals a specific value.
+
+        Args:
+            field: The field name to filter by
+            value: The value to match
+            order_by: Optional field name to sort results by
+
+        Returns:
+            list of cls instances matching the filter
+        """
+        from services.firebase_admin import get_firebase_admin
+        firebase_admin = get_firebase_admin()
+        collection_ref = firebase_admin.firestore.collection(cls.COLLECTION)
+
+        results = []
+        docs = collection_ref.stream()
+
+        for doc in docs:
+            data = doc.to_dict()
+            data['id'] = doc.id
+
+            if data.get(field) == value:
+                results.append(cls(data))
+
+        # Apply ordering if requested
+        if order_by:
+            results.sort(key=lambda x: getattr(x, order_by, None) or '')
+
+        return results
+
+    @classmethod
+    def count(cls, filters=None):
+        """Count documents in the collection matching optional filters.
+
+        Args:
+            filters: dict of {field: value} for equality filtering
+
+        Returns:
+            integer count of matching documents
+        """
+        from services.firebase_admin import get_firebase_admin
+        import firebase_admin.firestore as firestore_module
+
+        firebase_admin = get_firebase_admin()
+        collection_ref = firebase_admin.firestore.collection(cls.COLLECTION)
+
+        # Use Firestore's count() aggregation if available
+        try:
+            query = collection_ref
+            if filters:
+                for field, f_value in filters.items():
+                    query = query.where(field, '==', f_value)
+            count_result = query.count().get()
+            return count_result[0][0].value if count_result else 0
+        except Exception:
+            # Fallback: count manually
+            count = 0
+            docs = collection_ref.stream()
+            for _ in docs:
+                count += 1
+            return count
+
+    @classmethod
+    def exists(cls, document_id):
+        """Check if a document exists in the collection.
+
+        Args:
+            document_id: The document ID to check
+
+        Returns:
+            bool: True if document exists, False otherwise
+        """
+        from services.firebase_admin import get_firebase_admin
+        firebase_admin = get_firebase_admin()
+        doc_ref = firebase_admin.firestore.collection(cls.COLLECTION).document(document_id)
+        doc = doc_ref.get()
+        return doc.exists
+
+    @classmethod
+    def find_one(cls, filters):
+        """Find the first document matching the given filters.
+
+        Args:
+            filters: dict of {field: value} for equality filtering
+
+        Returns:
+            cls instance or None if not found
+        """
+        results = cls.get_all(filters=filters, limit=1)
+        return results[0] if results else None
+
+    @classmethod
+    def get_one(cls, filters=None):
+        """Alias for find_one - get a single document matching filters."""
+        return cls.find_one(filters)
+
+    @classmethod
+    def get_by_id_or_404(cls, document_id):
+        """Get a document by ID or raise 404-like error.
+
+        Args:
+            document_id: The document ID to retrieve
+
+        Returns:
+            cls instance
+
+        Raises:
+            ValueError: If document not found (routes should handle with 404)
+        """
+        result = cls.get_by_id(document_id)
+        if result is None:
+            raise ValueError(f"{cls.__name__} with id {document_id} not found")
+        return result
+
+    def save(self):
+        """Save the document to Firestore.
+
+        Creates a new document if id is empty, or updates existing document.
+        """
+        from services.firebase_admin import get_firebase_admin
+        import datetime
+
+        firebase_admin = get_firebase_admin()
+
+        data = dict(self._data) if hasattr(self, '_data') else {}
+        if hasattr(self, 'to_dict'):
+            data = self.to_dict()
+
+        # Remove None values to avoid overwriting with nulls
+        data = {k: v for k, v in data.items() if v is not None}
+
+        # Set timestamps
+        now = datetime.datetime.utcnow()
+        if 'created_at' not in data:
+            data['created_at'] = now
+        data['updated_at'] = now
+
+        # Save to Firestore
+        if self.id:
+            doc_ref = firebase_admin.firestore.collection(self.COLLECTION).document(self.id)
+            doc_ref.set(data)
+        else:
+            # Create new document with auto ID
+            doc_ref = firebase_admin.firestore.collection(self.COLLECTION).document()
+            doc_ref.set(data)
+            self.id = doc_ref.id
+            self._data['id'] = self.id
+
+        return self
 
 
-def format_ist_time(dt):
-    if dt is None:
-        return ""
-    return to_ist_dt(dt).strftime("%I:%M %p")
+# ---------------------------------------------------------------------------
+# User and authentication
+# ---------------------------------------------------------------------------
 
+class User(UserMixin):
+    """Firestore-compatible user model for Flask-Login."""
 
-def format_ist_date(dt):
-    if dt is None:
-        return ""
-    return to_ist_dt(dt).strftime("%d %b %Y")
+    COLLECTION = "users"
 
+    def __init__(self, user_data=None, **kwargs):
+        data = dict(user_data or {})
+        data.update(kwargs)
 
-# ============================================================
-# USER / AUTH
-# ============================================================
+        self.id = data.get("id") or data.get("uid") or ""
+        self.uid = self.id
 
-class User(UserMixin, db.Model):
-    __tablename__ = "users"
+        self.name = data.get("name", "")
+        self.email = data.get("email", "")
+        self.display_name = data.get("display_name", "") or self.name
+        self.phone = data.get("phone", "")
+        self.profile_photo = data.get("profile_photo")
+        self.photo_url = data.get("photo_url") or self.profile_photo
 
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(120), nullable=False)
-    email = db.Column(db.String(180), unique=True, nullable=False, index=True)
-    password_hash = db.Column(db.String(255), nullable=False)
+        self._is_active = data.get("is_active", data.get("active", True))
+        self.is_verified = data.get("is_verified", False)
+        self.auth_provider = data.get("auth_provider", "email")
 
-    is_active = db.Column(db.Boolean, default=True)
-    is_verified = db.Column(db.Boolean, default=False)
-    is_admin = db.Column(db.Boolean, default=False)
+        self.family_member_limit = data.get("family_member_limit", 2)
+        self.plan = data.get("plan", "free")
+        self.subscription_status = data.get("subscription_status", "free")
 
-    family_member_limit = db.Column(db.Integer, default=2)
-    onboarding_done = db.Column(db.Boolean, default=False)
-    dark_mode = db.Column(db.Boolean, default=False)
-    profile_photo = db.Column(db.String(500), nullable=True)
+        self.google_id = data.get("google_id")
+        self.google_email = data.get("google_email")
+        self.google_access_token = data.get("google_access_token")
+        self.google_refresh_token = data.get("google_refresh_token")
 
-    verification_token = db.Column(db.String(200), nullable=True)
-    reset_token = db.Column(db.String(200), nullable=True)
-    reset_token_expiry = db.Column(db.DateTime, nullable=True)
+        self.fcm_token = data.get("fcm_token")
+        self.web_push_sub = data.get("web_push_sub")
 
-    fcm_token = db.Column(db.String(500), nullable=True)
-    web_push_sub = db.Column(db.Text, nullable=True)
+        self.created_at = data.get("created_at")
+        self.updated_at = data.get("updated_at")
 
-    google_id = db.Column(db.String(200), nullable=True, index=True)
-    google_email = db.Column(db.String(200), nullable=True)
-    google_access_token = db.Column(db.Text, nullable=True)
-    google_refresh_token = db.Column(db.Text, nullable=True)
-    auth_provider = db.Column(db.String(20), default="email")
-
-    created_at = db.Column(db.DateTime, default=now_ist)
-    last_login = db.Column(db.DateTime, nullable=True)
-    last_updated = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    health_profile = db.relationship("UserHealthProfile", backref="user", uselist=False, cascade="all, delete-orphan")
-    conditions = db.relationship("UserCondition", backref="user", cascade="all, delete-orphan")
-    goals = db.relationship("UserGoal", backref="user", uselist=False, cascade="all, delete-orphan")
-    health_metrics = db.relationship("HealthMetric", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    meal_plans = db.relationship("MealPlan", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    favorites = db.relationship("Favorite", backref="user", cascade="all, delete-orphan")
-    grocery_items = db.relationship("GroceryItem", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    alerts = db.relationship("Alert", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    medicines = db.relationship("Medicine", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    nutrition_logs = db.relationship("NutritionDailyLog", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    weekly_insights = db.relationship("WeeklyInsight", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    family_members = db.relationship("FamilyMember", backref="owner", cascade="all, delete-orphan")
-    sleep_logs = db.relationship("SleepLog", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    exercise_logs = db.relationship("ExerciseLog", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    step_logs = db.relationship("StepLog", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    heart_rate_logs = db.relationship("HeartRateLog", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    habit_logs = db.relationship("HabitLogLegacy", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    documents = db.relationship("Document", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    email_report_config = db.relationship("EmailReportConfig", backref="user", uselist=False, cascade="all, delete-orphan")
-    notifications = db.relationship("Notification", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    reminders = db.relationship("Reminder", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    backups = db.relationship("Backup", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    health_scores = db.relationship("DailyHealthScore", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-
-    lab_tests = db.relationship("LabTest", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    doctor_visits = db.relationship("DoctorVisit", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    appointments = db.relationship("Appointment", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    emergency_card = db.relationship("EmergencyCard", backref="user", uselist=False, cascade="all, delete-orphan")
-    trusted_contacts = db.relationship("TrustedContact", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    subscription = db.relationship("UserSubscription", backref="user", uselist=False, cascade="all, delete-orphan")
-    timeline_events = db.relationship("HealthTimelineEvent", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-    habits = db.relationship("Habit", backref="user", cascade="all, delete-orphan", lazy="dynamic")
-
-    def set_password(self, password):
-        self.password_hash = bcrypt.generate_password_hash(password).decode("utf-8")
-
-    def check_password(self, password):
-        return bcrypt.check_password_hash(self.password_hash, password)
+        self._data = data
 
     @property
-    def bmi(self):
-        if not self.health_profile:
-            return None
-        h = self.health_profile.height_cm
-        w = self.health_profile.current_weight_kg
-        if not h or not w:
-            return None
-        return round(w / ((h / 100) ** 2), 1)
+    def is_active(self):
+        return self._is_active
+
+    @is_active.setter
+    def is_active(self, value):
+        self._is_active = value
+
+    def save(self):
+        """Save user data to Firestore."""
+        from services.firebase_admin import get_firebase_admin
+        import datetime
+
+        db = get_firebase_admin().firestore
+        data = dict(self._data) if hasattr(self, '_data') else {}
+
+        # Remove None values to avoid overwriting with nulls
+        data = {k: v for k, v in data.items() if v is not None}
+
+        # Set timestamps
+        now = datetime.datetime.utcnow()
+        if 'created_at' not in data:
+            data['created_at'] = now
+        data['updated_at'] = now
+
+        # Save to Firestore
+        if self.id:
+            doc_ref = db.collection(self.COLLECTION).document(self.id)
+            doc_ref.set(data)
+        else:
+            doc_ref = db.collection(self.COLLECTION).document()
+            doc_ref.set(data)
+            self.id = doc_ref.id
+            self._data['id'] = self.id
+
+        return self
+
+    # Admin check - users with "admin" plan or email domain are admins
+    @property
+    def is_admin(self):
+        """Check if user has admin privileges."""
+        # Check plan first, then fall back to email domain
+        return self.plan == "admin" or self.email.endswith("@admin.com") if self.email else False
 
     @property
-    def bmi_status(self):
-        b = self.bmi
-        if b is None:
-            return "Unknown"
-        if b < 18.5:
-            return "Underweight"
-        elif b < 25:
-            return "Normal"
-        elif b < 30:
-            return "Overweight"
-        elif b < 35:
-            return "Obese I"
-        elif b < 40:
-            return "Obese II"
-        return "Obese III"
-
-    @property
-    def age(self):
-        if not self.health_profile or not self.health_profile.date_of_birth:
-            return None
-        t = date.today()
-        d = self.health_profile.date_of_birth
-        return t.year - d.year - ((t.month, t.day) < (d.month, d.day))
-
-    @property
-    def condition_names(self):
-        return [uc.condition.name for uc in self.conditions]
-
-    @property
-    def has_bp(self):
-        return "High Blood Pressure" in self.condition_names
-
-    @property
-    def has_diabetes(self):
-        return any("Diabetes" in n for n in self.condition_names)
-
-    @property
-    def has_weight_loss(self):
-        return any("Weight Loss" in n for n in self.condition_names)
+    def goals(self):
+        """Return user goals, loading from Firestore if needed."""
+        goals_id = self._data.get("goals_id")
+        if goals_id:
+            from models import UserGoal
+            from services.firebase_admin import get_firebase_admin
+            firebase_admin = get_firebase_admin()
+            doc = firebase_admin.firestore.collection(UserGoal.COLLECTION).document(goals_id).get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                data["id"] = doc.id
+                return UserGoal(data)
+        # Return default goals
+        from models import UserGoal
+        return UserGoal({"user_id": self.id})
 
     @property
     def daily_calorie_target(self):
-        p = self.health_profile
-        if not p:
-            return 2000
-        w = p.current_weight_kg or 70
-        h = p.height_cm or 170
-        a = self.age or 30
-        g = p.gender or "female"
-        bmr = 10 * w + 6.25 * h - 5 * a + 5 if g == "male" else 10 * w + 6.25 * h - 5 * a - 161
-        fm = {
-            "sedentary": 1.2,
-            "light": 1.375,
-            "moderate": 1.55,
-            "active": 1.725,
-            "very_active": 1.9,
-        }
-        tdee = bmr * fm.get(p.activity_level or "sedentary", 1.2)
-        gl = self.goals
-        if gl:
-            if gl.primary_goal == "weight_loss":
-                sm = {"slow": 250, "normal": 500, "fast": 750}
-                return max(1200, int(tdee - sm.get(gl.goal_speed or "normal", 500)))
-            elif gl.primary_goal == "weight_gain":
-                return int(tdee + 400)
-        return int(tdee)
+        """Return daily calorie target, loading from Firestore if needed."""
+        calorie_id = self._data.get("daily_calorie_target_id")
+        if calorie_id:
+            from services.firebase_admin import get_firebase_admin
+            firebase_admin = get_firebase_admin()
+            doc = firebase_admin.firestore.collection("user_daily_targets").document(calorie_id).get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                return data.get("calories", 2000)
+        return 2000  # Default target
 
     @property
     def daily_protein_target(self):
-        if not self.health_profile:
-            return 80
-        w = self.health_profile.current_weight_kg or 70
-        if "High Blood Pressure" in self.condition_names:
-            return int(w * 1.0)
-        if any("Weight Loss" in n for n in self.condition_names):
-            return int(w * 1.4)
-        return int(w * 1.0)
+        """Return daily protein target, loading from Firestore if needed."""
+        protein_id = self._data.get("daily_protein_target_id")
+        if protein_id:
+            from services.firebase_admin import get_firebase_admin
+            firebase_admin = get_firebase_admin()
+            doc = firebase_admin.firestore.collection("user_daily_targets").document(protein_id).get()
+            if doc.exists:
+                data = doc.to_dict() or {}
+                return data.get("protein", 80)
+        return 80  # Default target
+
+    @property
+    def condition_names(self):
+        """Return list of condition names associated with this user."""
+        condition_ids = self._data.get("condition_ids", [])
+        return list(condition_ids) if condition_ids else []
+
+    @property
+    def onboarding_done(self):
+        """Return list of condition names associated with this user."""
+        condition_ids = self._data.get("condition_ids", [])
+        return list(condition_ids) if condition_ids else []
+
+    @property
+    def onboarding_done(self):
+        """Check if user has completed onboarding."""
+        return self._data.get("onboarding_done", False)
+
+    @onboarding_done.setter
+    def onboarding_done(self, value):
+        self._data["onboarding_done"] = bool(value)
+        self.updated_at = datetime.now(IST)
+
+    @property
+    def health_profile(self):
+        """Return list of condition names associated with this user.
+
+        Conditions are stored in the UserCondition collection, but this
+        property provides a convenient list of condition names from both
+        the user's conditions and health profile.
+        """
+        # Get condition IDs from UserCondition records
+        condition_ids = self._data.get("condition_ids", [])
+        if not condition_ids:
+            return []
+        # Return condition names - in a real app we'd query HealthCondition
+        # For now, return the IDs as names or empty list
+        return list(condition_ids) if condition_ids else []
+
+    @property
+    def onboarding_done(self):
+        """Check if user has completed onboarding."""
+        return self._data.get("onboarding_done", False)
+
+    @onboarding_done.setter
+    def onboarding_done(self, value):
+        self._data["onboarding_done"] = bool(value)
+        self.updated_at = datetime.now(IST)
+
+    @property
+    def health_profile(self):
+        """Check if user has completed onboarding."""
+        return self._data.get("onboarding_done", False)
+
+    @onboarding_done.setter
+    def onboarding_done(self, value):
+        self._data["onboarding_done"] = bool(value)
+        self.updated_at = datetime.now(IST)
+
+    @property
+    def health_profile(self):
+        """Fetch the user's health profile from Firestore."""
+        from models import UserHealthProfile
+        # Try to get the health profile document
+        profile_id = self._data.get("health_profile_id")
+        if profile_id:
+            try:
+                doc = db.collection(UserHealthProfile.COLLECTION).document(profile_id).get()
+                if doc.exists:
+                    data = doc.to_dict() or {}
+                    data["id"] = doc.id
+                    return UserHealthProfile(data)
+            except Exception:
+                pass
+        # Return a default health profile if none exists
+        return UserHealthProfile({"user_id": self.id, "onboarding_step": 1})
+
+    @property
+    def email_report_config(self):
+        """Fetch the user's email report config from Firestore."""
+        from models import EmailReportConfig
+        from services.firebase_admin import get_firebase_admin
+        config_id = self._data.get("email_report_config_id")
+        if config_id:
+            try:
+                firebase_admin = get_firebase_admin()
+                doc = firebase_admin.firestore.collection(EmailReportConfig.COLLECTION).document(config_id).get()
+                if doc.exists:
+                    data = doc.to_dict() or {}
+                    data["id"] = doc.id
+                    return EmailReportConfig(data)
+            except Exception:
+                pass
+        # Return a default config if none exists
+        return EmailReportConfig({"user_id": self.id})
+
+    def get_id(self):
+        """Flask-Login requires a string user ID."""
+        return str(self.id)
 
     def to_dict(self):
         return {
             "id": self.id,
+            "uid": self.uid,
             "name": self.name,
             "email": self.email,
-            "is_verified": self.is_verified,
-            "dark_mode": self.dark_mode,
+            "display_name": self.display_name,
+            "phone": self.phone,
             "profile_photo": self.profile_photo,
-            "bmi": self.bmi,
-            "bmi_status": self.bmi_status,
-            "age": self.age,
-            "daily_calorie_target": self.daily_calorie_target,
-            "daily_protein_target": self.daily_protein_target,
-            "conditions": self.condition_names,
-            "onboarding_done": self.onboarding_done,
+            "photo_url": self.photo_url,
+            "is_active": self.is_active,
+            "is_verified": self.is_verified,
             "auth_provider": self.auth_provider,
-            "google_email": self.google_email,
             "family_member_limit": self.family_member_limit,
+            "plan": self.plan,
+            "subscription_status": self.subscription_status,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
         }
 
+    def set_password(self, password):
+        """Passwords are managed by Firebase Authentication."""
+        return None
 
-class UserHealthProfile(db.Model):
-    __tablename__ = "userhealthprofiles"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False)
-    gender = db.Column(db.String(20), nullable=True)
-    date_of_birth = db.Column(db.Date, nullable=True)
-    height_cm = db.Column(db.Float, nullable=True)
-    current_weight_kg = db.Column(db.Float, nullable=True)
-    activity_level = db.Column(db.String(30), default="sedentary")
-    diet_preference = db.Column(db.String(30), default="vegetarian")
-    onboarding_step = db.Column(db.Integer, default=1)
-    blood_group = db.Column(db.String(10), nullable=True)
-    emergency_contact = db.Column(db.String(200), nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    def to_dict(self):
-        return {
-            "gender": self.gender,
-            "date_of_birth": str(self.date_of_birth) if self.date_of_birth else None,
-            "height_cm": self.height_cm,
-            "current_weight_kg": self.current_weight_kg,
-            "activity_level": self.activity_level,
-            "diet_preference": self.diet_preference,
-            "blood_group": self.blood_group,
-            "emergency_contact": self.emergency_contact,
-        }
+    def check_password(self, password):
+        """Password verification is handled by Firebase Authentication."""
+        return True
 
 
-class HealthCondition(db.Model):
-    __tablename__ = "healthconditions"
+# ---------------------------------------------------------------------------
+# User profile, goals and settings
+# ---------------------------------------------------------------------------
 
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), unique=True, nullable=False)
-    description = db.Column(db.Text, nullable=True)
-    icon = db.Column(db.String(10), default="")
-    category = db.Column(db.String(50), nullable=True)
+class UserHealthProfile(FirestoreModel):
+    COLLECTION = "user_health_profiles"
 
-    users = db.relationship("UserCondition", backref="condition", cascade="all, delete-orphan")
+    DEFAULTS = {
+        "gender": None,
+        "date_of_birth": None,
+        "height_cm": None,
+        "current_weight_kg": None,
+        "activity_level": "sedentary",
+        "diet_preference": "vegetarian",
+        "blood_group": None,
+        "emergency_contact": None,
+    }
 
-
-class UserCondition(db.Model):
-    __tablename__ = "userconditions"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    condition_id = db.Column(db.Integer, db.ForeignKey("healthconditions.id"), nullable=False)
-    severity = db.Column(db.String(20), default="moderate")
-    diagnosed_at = db.Column(db.Date, nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-    __table_args__ = (db.UniqueConstraint("user_id", "condition_id"),)
+    def get(self, key, default=None):
+        """Dictionary-style getter for health profile fields."""
+        return self._data.get(key, default)
 
 
-class UserGoal(db.Model):
-    __tablename__ = "usergoals"
+class UserGoal(FirestoreModel):
+    COLLECTION = "user_goals"
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False)
-    target_weight_kg = db.Column(db.Float, nullable=True)
-    start_weight_kg = db.Column(db.Float, nullable=True)
-    goal_speed = db.Column(db.String(20), default="normal")
-    target_calories = db.Column(db.Integer, nullable=True)
-    target_protein_g = db.Column(db.Integer, nullable=True)
-    target_water_litres = db.Column(db.Float, default=2.5)
-    target_steps = db.Column(db.Integer, default=8000)
-    target_sleep_hours = db.Column(db.Float, default=7.5)
-    target_exercise_mins = db.Column(db.Integer, default=30)
-    target_bp_systolic = db.Column(db.Integer, default=130)
-    target_bp_diastolic = db.Column(db.Integer, default=80)
-    target_fasting_sugar = db.Column(db.Float, nullable=True)
-    primary_goal = db.Column(db.String(50), default="healthy_lifestyle")
-    goal_start_date = db.Column(db.Date, default=date.today)
-    goal_review_date = db.Column(db.Date, nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
+    DEFAULTS = {
+        "target_weight_kg": None,
+        "start_weight_kg": None,
+        "goal_speed": "normal",
+        "target_calories": None,
+        "target_protein_g": None,
+        "target_water_litres": 2.5,
+        "target_steps": 8000,
+        "target_sleep_hours": 7.5,
+        "target_exercise_mins": 30,
+        "target_bp_systolic": 130,
+        "target_bp_diastolic": 80,
+        "target_fasting_sugar": None,
+        "primary_goal": "healthy_lifestyle",
+        "goal_start_date": None,
+        "goal_review_date": None,
+    }
 
-    def to_dict(self):
-        return {
-            "target_weight_kg": self.target_weight_kg,
-            "start_weight_kg": self.start_weight_kg,
-            "goal_speed": self.goal_speed,
-            "target_water_litres": self.target_water_litres,
-            "target_steps": self.target_steps,
-            "target_sleep_hours": self.target_sleep_hours,
-            "target_exercise_mins": self.target_exercise_mins,
-            "target_bp_systolic": self.target_bp_systolic,
-            "target_bp_diastolic": self.target_bp_diastolic,
-            "primary_goal": self.primary_goal,
-        }
+    def __init__(self, data=None, **kwargs):
+        super().__init__(data, **kwargs)
+        # Set defaults
+        for key, value in self.DEFAULTS.items():
+            if key not in self._data or self._data.get(key) is None:
+                self._data[key] = value
+
+    def get(self, key, default=None):
+        """Get a field value from goals."""
+        return self._data.get(key, default)
 
 
-# ============================================================
-# CORE TRACKING
-# ============================================================
+class UserSettings(FirestoreModel):
+    COLLECTION = "user_settings"
 
-class HealthMetric(db.Model):
-    __tablename__ = "healthmetrics"
+    DEFAULTS = {
+        "notifications_enabled": True,
+        "email_notifications_enabled": True,
+        "push_notifications_enabled": True,
+        "medicine_reminders_enabled": True,
+        "appointment_reminders_enabled": True,
+        "water_reminders_enabled": True,
+        "sleep_reminders_enabled": True,
+        "exercise_reminders_enabled": True,
+        "language": "en",
+        "timezone": "Asia/Kolkata",
+        "theme": "light",
+    }
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    metric_type = db.Column(db.String(30), nullable=False, index=True)
-    value1 = db.Column(db.Float, nullable=True)
-    value2 = db.Column(db.Float, nullable=True)
-    value3 = db.Column(db.Float, nullable=True)
-    unit = db.Column(db.String(20), nullable=True)
-    source = db.Column(db.String(20), default="manual")
-    notes = db.Column(db.Text, nullable=True)
-    recorded_at = db.Column(db.DateTime, default=now_ist, index=True)
+
+class UserSubscription(FirestoreModel):
+    COLLECTION = "user_subscriptions"
+
+    DEFAULTS = {
+        "plan": "free",
+        "status": "active",
+        "start_date": None,
+        "end_date": None,
+        "auto_renew": False,
+        "payment_status": "unpaid",
+        "payment_method": None,
+        "amount": 0.0,
+        "currency": "INR",
+    }
+
+
+class TrustedContact(FirestoreModel):
+    COLLECTION = "trusted_contacts"
+
+    DEFAULTS = {
+        "name": "",
+        "relationship": "",
+        "phone": "",
+        "email": "",
+        "is_primary": False,
+        "can_view_health_data": False,
+        "can_receive_alerts": False,
+    }
+
+
+class EmergencyCard(FirestoreModel):
+    COLLECTION = "emergency_cards"
+
+    DEFAULTS = {
+        "blood_group": None,
+        "allergies": [],
+        "chronic_conditions": [],
+        "medications": [],
+        "emergency_contact_name": None,
+        "emergency_contact_phone": None,
+        "doctor_name": None,
+        "doctor_phone": None,
+        "insurance_provider": None,
+        "insurance_number": None,
+        "notes": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Health tracking
+# ---------------------------------------------------------------------------
+
+class HealthMetric(FirestoreModel):
+    COLLECTION = "health_metrics"
+
+    DEFAULTS = {
+        "metric_type": "",
+        "value1": None,
+        "value2": None,
+        "value3": None,
+        "unit": "",
+        "source": "manual",
+        "notes": None,
+        "recorded_at": None,
+    }
 
     @property
     def bp_status(self):
         if self.metric_type != "bp":
             return None
-        s, d = self.value1 or 0, self.value2 or 0
-        if s < 120 and d < 80:
+
+        systolic = self.value1 or 0
+        diastolic = self.value2 or 0
+
+        if systolic < 120 and diastolic < 80:
             return "Normal"
-        elif s < 130 and d < 80:
+        if systolic < 130 and diastolic < 80:
             return "Elevated"
-        elif s < 140 or d < 90:
+        if systolic < 140 or diastolic < 90:
             return "High Stage 1"
-        elif s < 180 or d < 120:
+        if systolic < 180 or diastolic < 120:
             return "High Stage 2"
+
         return "Crisis"
 
-    def to_dict(self):
-        dt = self.recorded_at
-        return {
-            "id": self.id,
-            "metric_type": self.metric_type,
-            "value1": self.value1,
-            "value2": self.value2,
-            "value3": self.value3,
-            "unit": self.unit,
-            "notes": self.notes,
-            "recorded_at": dt.isoformat() if dt else None,
-            "recorded_time": dt.strftime("%I:%M %p") if dt else "",
-            "recorded_date": dt.strftime("%d %b %Y") if dt else "",
-            "recorded_datetime_ist": dt.strftime("%d %b %Y, %I:%M %p IST") if dt else "",
-            "bp_status": self.bp_status,
-        }
-
-
-class SleepLog(db.Model):
-    __tablename__ = "sleeplogs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    log_date = db.Column(db.Date, default=date.today, index=True)
-    sleep_time = db.Column(db.String(10), nullable=True)
-    wake_time = db.Column(db.String(10), nullable=True)
-    duration_hours = db.Column(db.Float, nullable=True)
-    quality = db.Column(db.Integer, nullable=True)
-    deep_sleep_hrs = db.Column(db.Float, nullable=True)
-    interruptions = db.Column(db.Integer, default=0)
-    mood_on_wake = db.Column(db.String(20), nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-    recorded_at = db.Column(db.DateTime, default=now_ist)
-
-    __table_args__ = (db.UniqueConstraint("user_id", "log_date"),)
-
     @property
-    def quality_label(self):
-        return {
-            1: "Very Poor",
-            2: "Poor",
-            3: "Fair",
-            4: "Good",
-            5: "Excellent",
-        }.get(self.quality, "Not rated")
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "log_date": str(self.log_date),
-            "sleep_time": self.sleep_time,
-            "wake_time": self.wake_time,
-            "duration_hours": self.duration_hours,
-            "quality": self.quality,
-            "quality_label": self.quality_label,
-            "mood_on_wake": self.mood_on_wake,
-            "interruptions": self.interruptions,
-            "notes": self.notes,
-        }
-
-
-class ExerciseLog(db.Model):
-    __tablename__ = "exerciselogs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    log_date = db.Column(db.Date, default=date.today, index=True)
-    exercise_name = db.Column(db.String(200), nullable=False)
-    exercise_type = db.Column(db.String(30), nullable=True)
-    duration_minutes = db.Column(db.Integer, nullable=True)
-    calories_burned = db.Column(db.Integer, nullable=True)
-    sets = db.Column(db.Integer, nullable=True)
-    reps = db.Column(db.Integer, nullable=True)
-    weight_used_kg = db.Column(db.Float, nullable=True)
-    distance_km = db.Column(db.Float, nullable=True)
-    avg_heart_rate = db.Column(db.Integer, nullable=True)
-    intensity = db.Column(db.String(20), default="moderate")
-    notes = db.Column(db.Text, nullable=True)
-    recorded_at = db.Column(db.DateTime, default=now_ist)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "log_date": str(self.log_date),
-            "exercise_name": self.exercise_name,
-            "exercise_type": self.exercise_type,
-            "duration_minutes": self.duration_minutes,
-            "calories_burned": self.calories_burned,
-            "sets": self.sets,
-            "reps": self.reps,
-            "distance_km": self.distance_km,
-            "intensity": self.intensity,
-            "recorded_at": self.recorded_at.isoformat() if self.recorded_at else None,
-        }
-
-
-class StepLog(db.Model):
-    __tablename__ = "steplogs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    log_date = db.Column(db.Date, default=date.today, index=True)
-    steps = db.Column(db.Integer, default=0)
-    distance_km = db.Column(db.Float, nullable=True)
-    calories_burned = db.Column(db.Integer, nullable=True)
-    goal_steps = db.Column(db.Integer, default=8000)
-    goal_achieved = db.Column(db.Boolean, default=False)
-    recorded_at = db.Column(db.DateTime, default=now_ist)
-
-    __table_args__ = (db.UniqueConstraint("user_id", "log_date"),)
-
-    def compute_calories(self, weight_kg=70):
-        if not self.steps:
-            return 0
-        return int((self.steps / 100) * 3.5 * weight_kg * 3.5 / 200)
-
-    def compute_distance(self, height_cm=170):
-        if not self.steps:
-            return 0
-        return round((self.steps * height_cm * 0.414) / 100000, 2)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "log_date": str(self.log_date),
-            "steps": self.steps,
-            "distance_km": self.distance_km,
-            "calories_burned": self.calories_burned,
-            "goal_steps": self.goal_steps,
-            "goal_achieved": self.goal_achieved,
-        }
-
-
-class HeartRateLog(db.Model):
-    __tablename__ = "heartratelogs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    bpm = db.Column(db.Integer, nullable=False)
-    reading_type = db.Column(db.String(20), default="resting")
-    log_date = db.Column(db.Date, default=date.today)
-    notes = db.Column(db.Text, nullable=True)
-    recorded_at = db.Column(db.DateTime, default=now_ist)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "bpm": self.bpm,
-            "reading_type": self.reading_type,
-            "log_date": str(self.log_date),
-            "recorded_at": self.recorded_at.isoformat() if self.recorded_at else None,
-        }
-
-
-class HabitLogLegacy(db.Model):
-    __tablename__ = "habitlogs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    habit_name = db.Column(db.String(100), nullable=False)
-    category = db.Column(db.String(40), nullable=True)
-    log_date = db.Column(db.Date, default=date.today, index=True)
-    completed = db.Column(db.Boolean, default=False)
-    streak = db.Column(db.Integer, default=0)
-    target_value = db.Column(db.Float, nullable=True)
-    actual_value = db.Column(db.Float, nullable=True)
-    unit = db.Column(db.String(20), nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "habit_name": self.habit_name,
-            "category": self.category,
-            "log_date": str(self.log_date),
-            "completed": self.completed,
-            "streak": self.streak,
-            "target_value": self.target_value,
-            "actual_value": self.actual_value,
-            "unit": self.unit,
-            "notes": self.notes,
-        }
-
-
-class ExerciseLibrary(db.Model):
-    __tablename__ = "exerciselibrary"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False, index=True)
-    category = db.Column(db.String(50), nullable=True)
-    muscle_group = db.Column(db.String(100), nullable=True)
-    difficulty = db.Column(db.String(20), default="beginner")
-    description = db.Column(db.Text, nullable=True)
-    instructions = db.Column(db.Text, nullable=True)
-    benefits = db.Column(db.Text, nullable=True)
-    image_url = db.Column(db.String(500), nullable=True)
-    duration_mins = db.Column(db.Integer, nullable=True)
-    calories_per_min = db.Column(db.Float, nullable=True)
-    bp_safe = db.Column(db.Boolean, default=True)
-    diabetes_safe = db.Column(db.Boolean, default=True)
-    heart_safe = db.Column(db.Boolean, default=True)
-    beginner_safe = db.Column(db.Boolean, default=True)
-    equipment = db.Column(db.String(100), nullable=True)
-    is_featured = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "category": self.category,
-            "muscle_group": self.muscle_group,
-            "difficulty": self.difficulty,
-            "description": self.description,
-            "instructions": self.instructions,
-            "benefits": self.benefits,
-            "image_url": self.image_url,
-            "duration_mins": self.duration_mins,
-            "calories_per_min": self.calories_per_min,
-            "bp_safe": self.bp_safe,
-            "equipment": self.equipment,
-            "is_featured": self.is_featured,
-        }
-
-
-# ============================================================
-# FAMILY
-# ============================================================
-
-class FamilyMember(db.Model):
-    __tablename__ = "familymembers"
-
-    id = db.Column(db.Integer, primary_key=True)
-    owner_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    name = db.Column(db.String(120), nullable=False)
-    relation = db.Column(db.String(50), nullable=True)
-    gender = db.Column(db.String(20), nullable=True)
-    date_of_birth = db.Column(db.Date, nullable=True)
-    height_cm = db.Column(db.Float, nullable=True)
-    current_weight_kg = db.Column(db.Float, nullable=True)
-    profile_photo = db.Column(db.String(500), nullable=True)
-    conditions_json = db.Column(db.Text, default="")
-    target_weight_kg = db.Column(db.Float, nullable=True)
-    target_bp_systolic = db.Column(db.Integer, default=130)
-    target_bp_diastolic = db.Column(db.Integer, default=80)
-    target_water_litres = db.Column(db.Float, default=2.5)
-    target_steps = db.Column(db.Integer, default=8000)
-    blood_group = db.Column(db.String(10), nullable=True)
-    emergency_contact = db.Column(db.String(200), nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-    health_metrics = db.relationship("FamilyHealthMetric", backref="member", cascade="all, delete-orphan", lazy="dynamic")
-    medicines = db.relationship("FamilyMedicine", backref="member", cascade="all, delete-orphan")
-    documents = db.relationship("FamilyDocument", backref="member", cascade="all, delete-orphan", lazy="dynamic")
-
-    lab_tests = db.relationship("LabTest", backref="member", cascade="all, delete-orphan", lazy="dynamic")
-    doctor_visits = db.relationship("DoctorVisit", backref="member", cascade="all, delete-orphan", lazy="dynamic")
-    appointments = db.relationship("Appointment", backref="member", cascade="all, delete-orphan", lazy="dynamic")
-    timeline_events = db.relationship("HealthTimelineEvent", backref="member", cascade="all, delete-orphan", lazy="dynamic")
-    habits = db.relationship("Habit", backref="member", cascade="all, delete-orphan", lazy="dynamic")
-
-    @property
-    def conditions(self):
-        try:
-            return json.loads(self.conditions_json or "[]")
-        except Exception:
-            return []
-
-    @property
-    def age(self):
-        if not self.date_of_birth:
+    def recorded_at_dt(self):
+        """Return recorded_at as a Python datetime object for template usage."""
+        recorded_at = self._data.get("recorded_at")
+        if not recorded_at:
             return None
-        t = date.today()
-        return t.year - self.date_of_birth.year - ((t.month, t.day) < (self.date_of_birth.month, self.date_of_birth.day))
-
-    @property
-    def bmi(self):
-        if not self.height_cm or not self.current_weight_kg:
-            return None
-        return round(self.current_weight_kg / ((self.height_cm / 100) ** 2), 1)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "relation": self.relation,
-            "gender": self.gender,
-            "age": self.age,
-            "bmi": self.bmi,
-            "height_cm": self.height_cm,
-            "current_weight_kg": self.current_weight_kg,
-            "blood_group": self.blood_group,
-            "conditions": self.conditions,
-            "profile_photo": self.profile_photo,
-        }
-
-
-class FamilyHealthMetric(db.Model):
-    __tablename__ = "familyhealthmetrics"
-
-    id = db.Column(db.Integer, primary_key=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=False, index=True)
-    metric_type = db.Column(db.String(30), nullable=False)
-    value1 = db.Column(db.Float, nullable=True)
-    value2 = db.Column(db.Float, nullable=True)
-    value3 = db.Column(db.Float, nullable=True)
-    unit = db.Column(db.String(20), nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-    recorded_at = db.Column(db.DateTime, default=now_ist, index=True)
+        if isinstance(recorded_at, datetime):
+            return recorded_at
+        if hasattr(recorded_at, 'to_datetime'):
+            # Firestore Timestamp object
+            return recorded_at.to_datetime()
+        if isinstance(recorded_at, str):
+            # ISO format string
+            try:
+                return datetime.fromisoformat(recorded_at.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+        return None
 
     def to_dict(self):
-        dt = self.recorded_at
-        return {
-            "id": self.id,
-            "metric_type": self.metric_type,
-            "value1": self.value1,
-            "value2": self.value2,
-            "recorded_at": dt.isoformat() if dt else None,
-            "recorded_time": dt.strftime("%I:%M %p IST") if dt else "",
-            "recorded_date": dt.strftime("%d %b %Y") if dt else "",
-        }
+        data = super().to_dict()
+
+        recorded_at = self._data.get("recorded_at")
+
+        # Handle different timestamp formats from Firestore
+        dt = None
+        if isinstance(recorded_at, datetime):
+            dt = recorded_at
+        elif hasattr(recorded_at, 'to_datetime'):
+            # Firestore Timestamp object
+            dt = recorded_at.to_datetime()
+        elif isinstance(recorded_at, str):
+            # ISO format string
+            try:
+                dt = datetime.fromisoformat(recorded_at.replace('Z', '+00:00'))
+            except ValueError:
+                pass
+
+        if dt:
+            data["recorded_at"] = dt.isoformat()
+            data["recorded_time"] = dt.strftime("%I:%M %p")
+            data["recorded_date"] = dt.strftime("%d %b %Y")
+            data["recorded_datetime_ist"] = dt.strftime(
+                "%d %b %Y, %I:%M %p IST"
+            )
+        else:
+            data["recorded_time"] = ""
+            data["recorded_date"] = ""
+            data["recorded_datetime_ist"] = ""
+
+        data["bp_status"] = self.bp_status
+        return data
 
 
-class FamilyMedicine(db.Model):
-    __tablename__ = "familymedicines"
+class FamilyHealthMetric(FirestoreModel):
+    COLLECTION = "family_health_metrics"
 
-    id = db.Column(db.Integer, primary_key=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=False)
-    name = db.Column(db.String(200), nullable=False)
-    dosage = db.Column(db.String(100), nullable=True)
-    timing = db.Column(db.String(20), nullable=True)
-    frequency = db.Column(db.String(30), default="daily")
-    active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-
-class FamilyDocument(db.Model):
-    __tablename__ = "familydocuments"
-
-    id = db.Column(db.Integer, primary_key=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=False)
-    title = db.Column(db.String(200), nullable=False)
-    doc_type = db.Column(db.String(50), nullable=True)
-    file_path = db.Column(db.String(500), nullable=True)
-    uploaded_at = db.Column(db.DateTime, default=now_ist)
+    DEFAULTS = {
+        "metric_type": "",
+        "value1": None,
+        "value2": None,
+        "value3": None,
+        "unit": "",
+        "source": "manual",
+        "notes": None,
+        "recorded_at": None,
+    }
 
 
-# ============================================================
-# MEDICINE MODULE
-# ============================================================
+class HeartRateLog(FirestoreModel):
+    COLLECTION = "heart_rate_logs"
 
-class Medicine(db.Model):
-    __tablename__ = "medicines"
+    DEFAULTS = {
+        "heart_rate": None,
+        "resting_heart_rate": None,
+        "source": "manual",
+        "notes": None,
+        "recorded_at": None,
+    }
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=True)
 
-    name = db.Column(db.String(200), nullable=False)
-    generic_name = db.Column(db.String(200), nullable=True)
-    dosage = db.Column(db.String(100), nullable=True)
-    medicine_type = db.Column(db.String(50), default="tablet")
-    with_food = db.Column(db.String(30), default="after_food")
-    condition_name = db.Column(db.String(200), nullable=True)
-    prescribed_by = db.Column(db.String(200), nullable=True)
-    notes = db.Column(db.Text, nullable=True)
+class SleepLog(FirestoreModel):
+    COLLECTION = "sleep_logs"
 
-    schedule_type = db.Column(db.String(30), default="morning")
-    custom_times_json = db.Column(db.Text, default="[]")
+    DEFAULTS = {
+        "sleep_hours": 0.0,
+        "sleep_quality": "good",
+        "bed_time": None,
+        "wake_time": None,
+        "notes": None,
+        "log_date": None,
+    }
 
-    start_date = db.Column(db.Date, nullable=True)
-    end_date = db.Column(db.Date, nullable=True)
-    is_active = db.Column(db.Boolean, default=True)
-    is_discontinued = db.Column(db.Boolean, default=False)
 
-    stock_count = db.Column(db.Integer, default=0)
-    low_stock_threshold = db.Column(db.Integer, default=5)
-    auto_reduce_stock = db.Column(db.Boolean, default=True)
+class StepLog(FirestoreModel):
+    COLLECTION = "step_logs"
 
-    reminder_enabled = db.Column(db.Boolean, default=True)
-    snooze_minutes = db.Column(db.Integer, default=10)
-    max_reminders = db.Column(db.Integer, default=3)
-    reminder_sound = db.Column(db.String(50), default="medicine")
+    DEFAULTS = {
+        "steps": 0,
+        "distance_km": 0.0,
+        "calories_burned": 0.0,
+        "source": "manual",
+        "log_date": None,
+    }
 
-    caregiver_alert = db.Column(db.Boolean, default=False)
 
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
+class ExerciseLog(FirestoreModel):
+    COLLECTION = "exercise_logs"
 
-    logs = db.relationship("MedicineLog", backref="medicine", lazy="dynamic", cascade="all, delete-orphan")
+    DEFAULTS = {
+        "exercise_type": "walking",
+        "duration_minutes": 0,
+        "calories_burned": 0.0,
+        "intensity": "moderate",
+        "notes": None,
+        "log_date": None,
+        "recorded_at": None,
+    }
 
-    PLAN_LIMITS = {"free": 2, "normal": 2, "premium": 10, "family": 20}
+
+class ExerciseLibrary(FirestoreModel):
+    COLLECTION = "exercise_library"
+
+    DEFAULTS = {
+        "name": "",
+        "category": "general",
+        "description": "",
+        "instructions": [],
+        "duration_minutes": 10,
+        "calories_burned": 0.0,
+        "difficulty": "easy",
+        "is_active": True,
+        "image_url": None,
+        "video_url": None,
+    }
+
+
+class HabitLog(FirestoreModel):
+    COLLECTION = "habit_logs"
+
+    DEFAULTS = {
+        "habit_type": "",
+        "status": "pending",
+        "value": None,
+        "notes": None,
+        "log_date": None,
+        "completed_at": None,
+    }
+
+
+class DailyHealthScore(FirestoreModel):
+    COLLECTION = "daily_health_scores"
+
+    DEFAULTS = {
+        "health_score": 0.0,
+        "nutrition_score": 0.0,
+        "activity_score": 0.0,
+        "sleep_score": 0.0,
+        "hydration_score": 0.0,
+        "medication_score": 0.0,
+        "log_date": None,
+    }
+
+
+class WeeklyInsight(FirestoreModel):
+    COLLECTION = "weekly_insights"
+
+    DEFAULTS = {
+        "week_start_date": None,
+        "week_end_date": None,
+        "insight_type": "general",
+        "title": "",
+        "message": "",
+        "score": 0.0,
+        "metrics": {},
+        "recommendations": [],
+    }
+
+
+class HealthTimelineEvent(FirestoreModel):
+    COLLECTION = "health_timeline_events"
+
+    DEFAULTS = {
+        "event_type": "general",
+        "title": "",
+        "description": "",
+        "event_date": None,
+        "related_id": None,
+        "related_type": None,
+        "severity": "info",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Conditions, labs and doctor visits
+# ---------------------------------------------------------------------------
+
+class HealthCondition(FirestoreModel):
+    COLLECTION = "health_conditions"
+
+    DEFAULTS = {
+        "name": "",
+        "icon": "",
+        "category": "",
+        "description": "",
+        "is_active": True,
+    }
+
+
+class UserCondition(FirestoreModel):
+    COLLECTION = "user_conditions"
+
+    DEFAULTS = {
+        "condition_id": "",
+        "severity": "moderate",
+        "diagnosed_at": None,
+        "notes": None,
+    }
+
+
+class LabTest(FirestoreModel):
+    COLLECTION = "lab_tests"
+
+    DEFAULTS = {
+        "test_name": "",
+        "test_category": "general",
+        "result_value": None,
+        "result_unit": "",
+        "reference_range": None,
+        "status": "pending",
+        "is_abnormal": False,
+        "lab_name": None,
+        "doctor_name": None,
+        "test_date": None,
+        "report_url": None,
+        "notes": None,
+    }
+
+
+class DoctorVisit(FirestoreModel):
+    COLLECTION = "doctor_visits"
+
+    DEFAULTS = {
+        "doctor_name": "",
+        "specialty": "",
+        "clinic_name": None,
+        "visit_date": None,
+        "reason": None,
+        "diagnosis": None,
+        "treatment": None,
+        "notes": None,
+        "next_visit_date": None,
+    }
+
+
+class Appointment(FirestoreModel):
+    COLLECTION = "appointments"
+
+    DEFAULTS = {
+        "doctor_name": "",
+        "specialty": "",
+        "clinic_name": None,
+        "appointment_date": None,
+        "appointment_time": None,
+        "appointment_type": "in_person",
+        "status": "scheduled",
+        "reason": None,
+        "notes": None,
+        "reminder_enabled": True,
+        "reminder_minutes_before": 60,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Medicines and reminders
+# ---------------------------------------------------------------------------
+
+class Medicine(FirestoreModel):
+    COLLECTION = "medicines"
+
+    DEFAULTS = {
+        "member_id": None,
+        "name": "",
+        "generic_name": None,
+        "dosage": None,
+        "medicine_type": "tablet",
+        "with_food": "after_food",
+        "condition_name": None,
+        "prescribed_by": None,
+        "notes": None,
+        "schedule_type": "morning",
+        "custom_times_json": "[]",
+        "start_date": None,
+        "end_date": None,
+        "is_active": True,
+        "is_discontinued": False,
+        "stock_count": 0,
+        "low_stock_threshold": 5,
+        "auto_reduce_stock": True,
+        "reminder_enabled": True,
+        "snooze_minutes": 10,
+        "max_reminders": 3,
+        "reminder_sound": "medicine",
+        "caregiver_alert": False,
+    }
+
+    PLAN_LIMITS = {
+        "free": 2,
+        "normal": 2,
+        "premium": 10,
+        "family": 20,
+    }
 
     TYPES = {
         "tablet": "Tablet",
@@ -776,80 +1079,75 @@ class Medicine(db.Model):
     @property
     def custom_times(self):
         try:
-            return json.loads(self.custom_times_json or "[]")
+            return json.loads(self._data.get("custom_times_json") or "[]")
         except Exception:
             return []
 
     @property
     def reminder_times(self):
-        if self.schedule_type == "custom":
+        if self._data.get("schedule_type") == "custom":
             return self.custom_times
-        return [self.SCHEDULE_TIMES.get(self.schedule_type, "08:00")]
 
-    def _is_taken_today(self):
-        t = today_ist()
-        log = self.logs.filter_by(log_date=t).first()
-        return log.status if log else "pending"
-
-    def _adherence_30d(self):
-        since = today_ist() - timedelta(days=30)
-        logs = self.logs.filter(MedicineLog.log_date >= since).all()
-        if not logs:
-            return 0.0
-        taken = sum(1 for l in logs if l.status in ("taken", "ai_verified"))
-        return round((taken / len(logs)) * 100, 1)
+        schedule_type = self._data.get("schedule_type", "morning")
+        return [self.SCHEDULE_TIMES.get(schedule_type, "08:00")]
 
     def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "generic_name": self.generic_name,
-            "dosage": self.dosage,
-            "medicine_type": self.medicine_type,
-            "type_label": self.TYPES.get(self.medicine_type, "Tablet"),
-            "with_food": self.with_food,
-            "condition_name": self.condition_name,
-            "prescribed_by": self.prescribed_by,
-            "notes": self.notes,
-            "schedule_type": self.schedule_type,
-            "custom_times": self.custom_times,
-            "reminder_times": self.reminder_times,
-            "start_date": str(self.start_date) if self.start_date else None,
-            "end_date": str(self.end_date) if self.end_date else None,
-            "is_active": self.is_active,
-            "is_discontinued": self.is_discontinued,
-            "stock_count": self.stock_count,
-            "low_stock_threshold": self.low_stock_threshold,
-            "auto_reduce_stock": self.auto_reduce_stock,
-            "low_stock_alert": self.stock_count <= self.low_stock_threshold,
-            "reminder_enabled": self.reminder_enabled,
-            "snooze_minutes": self.snooze_minutes,
-            "max_reminders": self.max_reminders,
-            "reminder_sound": self.reminder_sound,
-            "caregiver_alert": self.caregiver_alert,
-            "today_status": self._is_taken_today(),
-            "adherence_pct": self._adherence_30d(),
-            "member_id": self.member_id,
-        }
+        data = super().to_dict()
+        data["type_label"] = self.TYPES.get(
+            self._data.get("medicine_type", "tablet"),
+            "Tablet",
+        )
+        data["custom_times"] = self.custom_times
+        data["reminder_times"] = self.reminder_times
+
+        stock_count = self._data.get("stock_count", 0)
+        threshold = self._data.get("low_stock_threshold", 5)
+
+        data["low_stock_alert"] = stock_count <= threshold
+        return data
 
 
-class MedicineLog(db.Model):
-    __tablename__ = "medicine_logs"
+class FamilyMedicine(FirestoreModel):
+    COLLECTION = "family_medicines"
 
-    id = db.Column(db.Integer, primary_key=True)
-    medicine_id = db.Column(db.Integer, db.ForeignKey("medicines.id"), nullable=False, index=True)
-    log_date = db.Column(db.Date, nullable=False, default=today_ist, index=True)
-    status = db.Column(db.String(20), default="pending")
-    taken = db.Column(db.Boolean, default=False)
-    scheduled_time = db.Column(db.String(10), nullable=True)
-    logged_at = db.Column(db.DateTime, default=now_ist)
-    photo_path = db.Column(db.String(500), nullable=True)
-    ai_verified = db.Column(db.Boolean, default=False)
-    ai_result = db.Column(db.Text, nullable=True)
-    reminder_count = db.Column(db.Integer, default=0)
-    notes = db.Column(db.Text, nullable=True)
+    DEFAULTS = {
+        "member_id": None,
+        "name": "",
+        "generic_name": None,
+        "dosage": None,
+        "medicine_type": "tablet",
+        "with_food": "after_food",
+        "condition_name": None,
+        "prescribed_by": None,
+        "notes": None,
+        "schedule_type": "morning",
+        "custom_times_json": "[]",
+        "start_date": None,
+        "end_date": None,
+        "is_active": True,
+        "is_discontinued": False,
+        "stock_count": 0,
+        "low_stock_threshold": 5,
+        "reminder_enabled": True,
+    }
 
-    __table_args__ = (db.UniqueConstraint("medicine_id", "log_date", "scheduled_time"),)
+
+class MedicineLog(FirestoreModel):
+    COLLECTION = "medicine_logs"
+
+    DEFAULTS = {
+        "medicine_id": "",
+        "log_date": None,
+        "status": "pending",
+        "taken": False,
+        "scheduled_time": None,
+        "logged_at": None,
+        "photo_path": None,
+        "ai_verified": False,
+        "ai_result": None,
+        "reminder_count": 0,
+        "notes": None,
+    }
 
     STATUS_EMOJI = {
         "pending": "🟡",
@@ -860,1017 +1158,316 @@ class MedicineLog(db.Model):
     }
 
     def to_dict(self):
-        return {
-            "id": self.id,
-            "medicine_id": self.medicine_id,
-            "log_date": str(self.log_date),
-            "status": self.status,
-            "status_emoji": self.STATUS_EMOJI.get(self.status, "🟡"),
-            "scheduled_time": self.scheduled_time,
-            "logged_at": self.logged_at.isoformat() if self.logged_at else None,
-            "ai_verified": self.ai_verified,
-            "reminder_count": self.reminder_count,
-        }
+        data = super().to_dict()
+        status = self._data.get("status", "pending")
+        data["status_emoji"] = self.STATUS_EMOJI.get(status, "🟡")
+        return data
 
 
-# ============================================================
-# LAB / VISIT / APPOINTMENT
-# ============================================================
+class Reminder(FirestoreModel):
+    COLLECTION = "reminders"
 
-class LabTest(db.Model):
-    __tablename__ = "lab_tests"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=True)
-
-    test_category = db.Column(db.String(50), nullable=False, default="blood_sugar")
-    test_name = db.Column(db.String(200), nullable=False)
-
-    value = db.Column(db.Float, nullable=False)
-    unit = db.Column(db.String(50), nullable=True)
-    ref_range_low = db.Column(db.Float, nullable=True)
-    ref_range_high = db.Column(db.Float, nullable=True)
-    ref_range_label = db.Column(db.String(100), nullable=True)
-
-    test_date = db.Column(db.Date, nullable=False, default=today_ist, index=True)
-    lab_name = db.Column(db.String(200), nullable=True)
-    doctor_name = db.Column(db.String(200), nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-
-    document_id = db.Column(db.Integer, db.ForeignKey("documents.id"), nullable=True)
-    repeat_reminder_months = db.Column(db.Integer, nullable=True)
-
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    DEFAULT_RANGES = {
-        "blood_sugar": [("Low", 0, 69), ("Normal", 70, 99), ("Pre-Diabetic", 100, 125), ("Diabetic", 126, 9999)],
-        "hba1c": [("Normal", 0, 5.6), ("Pre-Diabetic", 5.7, 6.4), ("Diabetic", 6.5, 99)],
-        "cholesterol": [("Normal", 0, 199), ("Borderline", 200, 239), ("High", 240, 9999)],
-        "hdl": [("Low", 0, 39), ("Borderline", 40, 59), ("Good", 60, 999)],
-        "ldl": [("Optimal", 0, 99), ("Near Optimal", 100, 129), ("Borderline", 130, 159), ("High", 160, 9999)],
-        "triglycerides": [("Normal", 0, 149), ("Borderline", 150, 199), ("High", 200, 499), ("Very High", 500, 9999)],
-        "hemoglobin": [("Low", 0, 11.9), ("Normal", 12, 17.5), ("High", 17.6, 99)],
-        "creatinine": [("Low", 0, 0.59), ("Normal", 0.6, 1.2), ("High", 1.21, 99)],
-        "alt": [("Normal", 0, 40), ("Elevated", 41, 120), ("High", 121, 9999)],
-        "ast": [("Normal", 0, 40), ("Elevated", 41, 120), ("High", 121, 9999)],
-        "tsh": [("Low", 0, 0.39), ("Normal", 0.4, 4.0), ("High", 4.01, 99)],
-        "vitamin_d": [("Deficient", 0, 19), ("Insufficient", 20, 29), ("Sufficient", 30, 100), ("Toxic", 101, 9999)],
-        "vitamin_b12": [("Deficient", 0, 199), ("Normal", 200, 900), ("High", 901, 9999)],
-        "wbc": [("Low", 0, 3.9), ("Normal", 4.0, 11.0), ("High", 11.01, 99)],
-        "rbc": [("Low", 0, 3.9), ("Normal", 4.0, 5.9), ("High", 6.0, 99)],
-        "platelets": [("Low", 0, 149), ("Normal", 150, 400), ("High", 401, 9999)],
-        "uric_acid": [("Low", 0, 2.4), ("Normal", 2.5, 6.0), ("High", 6.01, 99)],
+    DEFAULTS = {
+        "reminder_type": "general",
+        "title": "",
+        "message": "",
+        "reminder_date": None,
+        "reminder_time": None,
+        "repeat_type": "none",
+        "status": "pending",
+        "is_completed": False,
+        "completed_at": None,
+        "related_id": None,
+        "related_type": None,
     }
 
-    STATUS_COLORS = {
-        "Low": "#3B82F6",
-        "Normal": "#22C55E",
-        "Good": "#22C55E",
-        "Sufficient": "#22C55E",
-        "Optimal": "#22C55E",
-        "High": "#EF4444",
-        "Very High": "#DC2626",
-        "Pre-Diabetic": "#F59E0B",
-        "Borderline": "#F59E0B",
-        "Diabetic": "#EF4444",
-        "Deficient": "#EF4444",
-        "Insufficient": "#F59E0B",
-        "Elevated": "#F59E0B",
-        "Toxic": "#DC2626",
-        "Unknown": "#9CA3AF",
+
+# ---------------------------------------------------------------------------
+# Alerts and notifications
+# ---------------------------------------------------------------------------
+
+class Alert(FirestoreModel):
+    COLLECTION = "alerts"
+
+    DEFAULTS = {
+        "alert_type": "",
+        "category": "",
+        "title": "",
+        "message": "",
+        "action_text": None,
+        "action_url": None,
+        "trigger_value": None,
+        "is_read": False,
+        "is_dismissed": False,
+        "expires_at": None,
+    }
+
+
+class Notification(FirestoreModel):
+    COLLECTION = "notifications"
+
+    DEFAULTS = {
+        "notification_type": "general",
+        "title": "",
+        "message": "",
+        "category": "general",
+        "action_text": None,
+        "action_url": None,
+        "is_read": False,
+        "read_at": None,
+        "is_dismissed": False,
+        "expires_at": None,
+    }
+
+
+class AdminLog(FirestoreModel):
+    COLLECTION = "admin_logs"
+
+    DEFAULTS = {
+        "action": "",
+        "actor_id": None,
+        "actor_email": None,
+        "target_type": None,
+        "target_id": None,
+        "details": {},
+        "ip_address": None,
+        "user_agent": None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Family
+# ---------------------------------------------------------------------------
+
+class FamilyMember(FirestoreModel):
+    COLLECTION = "family_members"
+
+    DEFAULTS = {
+        "name": "",
+        "relationship": "",
+        "date_of_birth": None,
+        "gender": None,
+        "blood_group": None,
+        "phone": None,
+        "email": None,
+        "profile_photo": None,
+        "is_active": True,
+        "health_profile": {},
+    }
+
+
+class FamilyDocument(FirestoreModel):
+    COLLECTION = "family_documents"
+
+    DEFAULTS = {
+        "member_id": None,
+        "title": "",
+        "document_type": "other",
+        "file_name": "",
+        "file_url": None,
+        "file_path": None,
+        "file_size": 0,
+        "mime_type": "",
+        "notes": None,
+        "issue_date": None,
+        "expiry_date": None,
+        "is_verified": False,
+        "is_archived": False,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Documents
+# ---------------------------------------------------------------------------
+
+class Document(FirestoreModel):
+    COLLECTION = "documents"
+
+    DEFAULTS = {
+        "member_id": None,
+        "title": "",
+        "document_type": "other",
+        "file_name": "",
+        "file_url": None,
+        "file_path": None,
+        "file_size": 0,
+        "mime_type": "",
+        "notes": None,
+        "issue_date": None,
+        "expiry_date": None,
+        "is_verified": False,
+        "is_archived": False,
+    }
+
+    DOCUMENT_TYPES = {
+        "prescription": "Prescription",
+        "lab_report": "Lab Report",
+        "scan": "Scan / Imaging",
+        "discharge_summary": "Discharge Summary",
+        "insurance": "Insurance Document",
+        "vaccination": "Vaccination Record",
+        "other": "Other",
     }
 
     @property
-    def status(self):
-        ranges = self.DEFAULT_RANGES.get(
-            self.test_name.lower().replace(" ", "_"),
-            self.DEFAULT_RANGES.get(self.test_category, []),
+    def type_label(self):
+        return self.DOCUMENT_TYPES.get(
+            self._data.get("document_type", "other"),
+            "Other",
         )
-        if self.ref_range_low is not None and self.ref_range_high is not None:
-            if self.value < self.ref_range_low:
-                return "Low"
-            if self.value > self.ref_range_high:
-                return "High"
-            return "Normal"
-        for label, lo, hi in ranges:
-            if lo <= self.value <= hi:
-                return label
-        return "Unknown"
-
-    @property
-    def status_color(self):
-        return self.STATUS_COLORS.get(self.status, "#9CA3AF")
-
-    @property
-    def is_abnormal(self):
-        return self.status not in ("Normal", "Good", "Sufficient", "Optimal")
-
-    def to_dict(self, include_linked_doc=False):
-        d = {
-            "id": self.id,
-            "test_category": self.test_category,
-            "test_name": self.test_name,
-            "value": self.value,
-            "unit": self.unit,
-            "ref_range_low": self.ref_range_low,
-            "ref_range_high": self.ref_range_high,
-            "ref_range_label": self.ref_range_label,
-            "test_date": str(self.test_date),
-            "lab_name": self.lab_name,
-            "doctor_name": self.doctor_name,
-            "notes": self.notes,
-            "status": self.status,
-            "status_color": self.status_color,
-            "is_abnormal": self.is_abnormal,
-            "document_id": self.document_id,
-            "repeat_reminder_months": self.repeat_reminder_months,
-            "member_id": self.member_id,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }
-        if include_linked_doc and self.document_id:
-            doc = Document.query.get(self.document_id)
-            if doc:
-                d["linked_document"] = doc.to_dict()
-        return d
-
-
-class DoctorVisit(db.Model):
-    __tablename__ = "doctor_visits"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=True)
-
-    visit_date = db.Column(db.Date, nullable=False, default=today_ist)
-    doctor_name = db.Column(db.String(200), nullable=True)
-    hospital = db.Column(db.String(300), nullable=True)
-    specialization = db.Column(db.String(100), nullable=True)
-    diagnosis = db.Column(db.Text, nullable=True)
-    prescription = db.Column(db.Text, nullable=True)
-    follow_up_date = db.Column(db.Date, nullable=True)
-    cost = db.Column(db.Float, nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
 
     def to_dict(self):
-        return {
-            "id": self.id,
-            "visit_date": str(self.visit_date),
-            "doctor_name": self.doctor_name,
-            "hospital": self.hospital,
-            "specialization": self.specialization,
-            "diagnosis": self.diagnosis,
-            "prescription": self.prescription,
-            "follow_up_date": str(self.follow_up_date) if self.follow_up_date else None,
-            "cost": self.cost,
-            "notes": self.notes,
-            "member_id": self.member_id,
-        }
+        data = super().to_dict()
+        data["type_label"] = self.type_label
+        return data
 
 
-class Appointment(db.Model):
-    __tablename__ = "appointments"
+# ---------------------------------------------------------------------------
+# Nutrition and meals
+# ---------------------------------------------------------------------------
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=True)
+class Recipe(FirestoreModel):
+    COLLECTION = "recipes"
 
-    title = db.Column(db.String(300), nullable=False)
-    appointment_type = db.Column(db.String(50), default="doctor")
-    doctor_name = db.Column(db.String(200), nullable=True)
-    hospital_name = db.Column(db.String(200), nullable=True)
-    appointment_date = db.Column(db.Date, nullable=False, index=True)
-    appointment_time = db.Column(db.String(10), nullable=True)
-    location = db.Column(db.String(300), nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-
-    status = db.Column(db.String(20), default="upcoming")
-    completed = db.Column(db.Boolean, default=False)
-
-    reminder_1day = db.Column(db.Boolean, default=True)
-    reminder_1hour = db.Column(db.Boolean, default=True)
-    reminder_at_time = db.Column(db.Boolean, default=True)
-    reminder_custom_mins = db.Column(db.Integer, nullable=True)
-    reminder_sent_1day = db.Column(db.Boolean, default=False)
-    reminder_sent_1hour = db.Column(db.Boolean, default=False)
-    reminder_email = db.Column(db.Boolean, default=False)
-
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    PLAN_LIMITS = {"free": 2, "normal": 2, "premium": None, "family": None}
-
-    TYPES = {
-        "doctor": ("👨‍⚕️", "Doctor Visit"),
-        "lab": ("🧪", "Lab Test"),
-        "vaccination": ("💉", "Vaccination"),
-        "physiotherapy": ("🦴", "Physiotherapy"),
-        "dental": ("🦷", "Dental"),
-        "eye": ("👁️", "Eye Checkup"),
-        "health_checkup": ("🏥", "Health Checkup"),
-        "other": ("📅", "Other"),
+    DEFAULTS = {
+        "name": "",
+        "description": "",
+        "image": None,
+        "category": None,
+        "meal_type": None,
+        "cooking_time": "20 mins",
+        "servings": 1,
+        "difficulty": "easy",
+        "is_veg": True,
+        "ingredients": [],
+        "steps": [],
+        "tags": [],
+        "health_benefits": [],
+        "calories": 0,
+        "protein": 0,
+        "carbs": 0,
+        "fats": 0,
+        "fiber": 0,
+        "sugar": 0,
+        "sodium": 0,
+        "potassium": 0,
+        "cholesterol": 0,
+        "bp_friendly": True,
+        "diabetes_friendly": True,
+        "weight_loss_friendly": True,
+        "heart_friendly": True,
+        "high_protein": False,
+        "high_fiber": False,
+        "low_sodium": True,
+        "bp_score": 0.0,
+        "diabetes_score": 0.0,
+        "weight_loss_score": 0.0,
+        "nutrition_score": 0.0,
     }
 
-    STATUS_EMOJI = {
-        "upcoming": "🟡",
-        "completed": "🔵",
-        "missed": "🔴",
-        "cancelled": "⚪",
+
+class MealPlan(FirestoreModel):
+    COLLECTION = "meal_plans"
+
+    DEFAULTS = {
+        "week_start_date": None,
+        "generated_at": None,
+        "is_active": True,
+        "notes": None,
     }
 
-    @property
-    def type_icon(self):
-        return self.TYPES.get(self.appointment_type, ("📅", "Other"))[0]
 
-    @property
-    def type_label(self):
-        return self.TYPES.get(self.appointment_type, ("📅", "Other"))[1]
-
-    @property
-    def status_emoji(self):
-        return self.STATUS_EMOJI.get(self.status, "🟡")
-
-    @property
-    def days_until(self):
-        if self.status != "upcoming":
-            return None
-        return (self.appointment_date - today_ist()).days
-
-    @property
-    def is_today(self):
-        return self.appointment_date == today_ist()
-
-    @property
-    def is_overdue(self):
-        return self.status == "upcoming" and self.appointment_date < today_ist()
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "title": self.title,
-            "appointment_type": self.appointment_type,
-            "type_icon": self.type_icon,
-            "type_label": self.type_label,
-            "doctor_name": self.doctor_name,
-            "hospital_name": self.hospital_name,
-            "appointment_date": str(self.appointment_date),
-            "appointment_time": self.appointment_time,
-            "location": self.location,
-            "notes": self.notes,
-            "status": self.status,
-            "status_emoji": self.status_emoji,
-            "completed": self.completed,
-            "reminder_1day": self.reminder_1day,
-            "reminder_1hour": self.reminder_1hour,
-            "reminder_at_time": self.reminder_at_time,
-            "reminder_custom_mins": self.reminder_custom_mins,
-            "reminder_email": self.reminder_email,
-            "days_until": self.days_until,
-            "is_today": self.is_today,
-            "is_overdue": self.is_overdue,
-            "member_id": self.member_id,
-        }
-
-
-# ============================================================
-# EMERGENCY / TRUSTED CONTACTS / SUBSCRIPTION / TIMELINE
-# ============================================================
-
-class EmergencyCard(db.Model):
-    __tablename__ = "emergency_cards"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
-    blood_group = db.Column(db.String(10), nullable=True)
-    allergies = db.Column(db.Text, nullable=True)
-    emergency_contacts = db.Column(db.Text, nullable=True)
-    organ_donor = db.Column(db.Boolean, default=False)
-    additional_notes = db.Column(db.Text, nullable=True)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    def to_dict(self, user=None, conditions=None, medicines=None):
-        return {
-            "blood_group": self.blood_group,
-            "allergies": self.allergies,
-            "emergency_contacts": self.emergency_contacts,
-            "organ_donor": self.organ_donor,
-            "additional_notes": self.additional_notes,
-            "name": user.name if user else None,
-            "age": user.age if user else None,
-            "gender": user.health_profile.gender if user and user.health_profile else None,
-            "conditions": conditions or [],
-            "medicines": medicines or [],
-        }
-
-
-class TrustedContact(db.Model):
-    __tablename__ = "trusted_contacts"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    name = db.Column(db.String(200), nullable=False)
-    phone = db.Column(db.String(20), nullable=True)
-    email = db.Column(db.String(200), nullable=True)
-    relation = db.Column(db.String(100), nullable=True)
-    notify_bp_crisis = db.Column(db.Boolean, default=True)
-    notify_missed_meds = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "phone": self.phone,
-            "email": self.email,
-            "relation": self.relation,
-            "notify_bp_crisis": self.notify_bp_crisis,
-            "notify_missed_meds": self.notify_missed_meds,
-        }
-
-
-class Habit(db.Model):
-    __tablename__ = "habits"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=True)
-    name = db.Column(db.String(200), nullable=False)
-    category = db.Column(db.String(100), nullable=True)
-    target_value = db.Column(db.Float, nullable=True)
-    unit = db.Column(db.String(50), nullable=True)
-    is_active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-    logs = db.relationship("HabitLog", backref="habit", lazy="dynamic", cascade="all, delete-orphan")
-
-    def _streak(self):
-        streak = 0
-        check = today_ist()
-        for _ in range(365):
-            log = self.logs.filter_by(log_date=check, completed=True).first()
-            if log:
-                streak += 1
-            else:
-                break
-            check -= timedelta(days=1)
-        return streak
-
-    def to_dict(self):
-        today = today_ist()
-        today_log = self.logs.filter_by(log_date=today).first()
-        return {
-            "id": self.id,
-            "name": self.name,
-            "category": self.category,
-            "target_value": self.target_value,
-            "unit": self.unit,
-            "is_active": self.is_active,
-            "member_id": self.member_id,
-            "done_today": today_log.completed if today_log else False,
-            "streak": self._streak(),
-        }
-
-
-class HabitLog(db.Model):
-    __tablename__ = "habit_logs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    habit_id = db.Column(db.Integer, db.ForeignKey("habits.id"), nullable=False)
-    log_date = db.Column(db.Date, nullable=False, default=today_ist)
-    completed = db.Column(db.Boolean, default=False)
-    actual_value = db.Column(db.Float, nullable=True)
-    logged_at = db.Column(db.DateTime, default=now_ist)
-
-    __table_args__ = (db.UniqueConstraint("habit_id", "log_date"),)
-
-
-class UserSubscription(db.Model):
-    __tablename__ = "user_subscriptions"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
-    plan = db.Column(db.String(20), default="free")
-    purchase_token = db.Column(db.String(500), nullable=True)
-    product_id = db.Column(db.String(200), nullable=True)
-    expires_at = db.Column(db.DateTime, nullable=True)
-    auto_renew = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    @property
-    def is_active(self):
-        if self.plan == "free":
-            return True
-        if not self.expires_at:
-            return False
-        return datetime.now() <= self.expires_at
-
-    @property
-    def is_premium(self):
-        return self.plan in ("premium", "family") and self.is_active
-
-    @property
-    def is_family(self):
-        return self.plan == "family" and self.is_active
-
-    def to_dict(self):
-        return {
-            "plan": self.plan,
-            "is_active": self.is_active,
-            "is_premium": self.is_premium,
-            "is_family": self.is_family,
-            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
-            "auto_renew": self.auto_renew,
-        }
-
-
-class HealthTimelineEvent(db.Model):
-    __tablename__ = "health_timeline_events"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    member_id = db.Column(db.Integer, db.ForeignKey("familymembers.id"), nullable=True)
-    event_type = db.Column(db.String(50), nullable=False)
-    event_date = db.Column(db.Date, nullable=False, default=today_ist, index=True)
-    title = db.Column(db.String(300), nullable=False)
-    description = db.Column(db.Text, nullable=True)
-    icon = db.Column(db.String(10), nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "event_type": self.event_type,
-            "event_date": str(self.event_date),
-            "title": self.title,
-            "description": self.description,
-            "icon": self.icon,
-            "member_id": self.member_id,
-        }
-
-
-# ============================================================
-# REMINDERS / NOTIFICATIONS
-# ============================================================
-
-class Reminder(db.Model):
-    __tablename__ = "reminders"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    title = db.Column(db.String(200), nullable=False)
-    message = db.Column(db.Text, nullable=False)
-    category = db.Column(db.String(30), nullable=True)
-    remind_time = db.Column(db.String(10), nullable=True)
-    is_daily = db.Column(db.Boolean, default=True)
-    active_days = db.Column(db.String(50), default="1,2,3,4,5,6,7")
-    repeat_interval_mins = db.Column(db.Integer, default=5)
-    max_repeats = db.Column(db.Integer, default=10)
-    sound_enabled = db.Column(db.Boolean, default=True)
-    sound_name = db.Column(db.String(50), default="healthalert")
-    is_active = db.Column(db.Boolean, default=True)
-    last_triggered_at = db.Column(db.DateTime, nullable=True)
-    is_done_today = db.Column(db.Boolean, default=False)
-    done_reset_date = db.Column(db.Date, nullable=True)
-    repeat_count_today = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    def reset_daily(self):
-        today = date.today()
-        if self.done_reset_date != today:
-            self.is_done_today = False
-            self.repeat_count_today = 0
-            self.done_reset_date = today
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "title": self.title,
-            "message": self.message,
-            "category": self.category,
-            "remind_time": self.remind_time,
-            "repeat_interval_mins": self.repeat_interval_mins,
-            "sound_enabled": self.sound_enabled,
-            "sound_name": self.sound_name,
-            "is_active": self.is_active,
-            "is_done_today": self.is_done_today,
-            "is_daily": self.is_daily,
-        }
-
-
-class Notification(db.Model):
-    __tablename__ = "notifications"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    notif_type = db.Column(db.String(30), nullable=False)
-    category = db.Column(db.String(30), nullable=True)
-    title = db.Column(db.String(200), nullable=False)
-    message = db.Column(db.Text, nullable=False)
-    icon = db.Column(db.String(10), default="")
-    sound = db.Column(db.String(50), default="healthalert")
-    action_url = db.Column(db.String(200), nullable=True)
-    is_read = db.Column(db.Boolean, default=False)
-    delivered_via = db.Column(db.String(20), default="inapp")
-    reminder_id = db.Column(db.Integer, db.ForeignKey("reminders.id"), nullable=True)
-    scheduled_for = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist, index=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "notif_type": self.notif_type,
-            "category": self.category,
-            "title": self.title,
-            "message": self.message,
-            "icon": self.icon,
-            "is_read": self.is_read,
-            "sound": self.sound,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "created_time": self.created_at.strftime("%I:%M %p") if self.created_at else "",
-        }
-
-
-# ============================================================
-# FOOD / DOCS / REPORTING / ADMIN
-# ============================================================
-
-class Recipe(db.Model):
-    __tablename__ = "recipes"
-
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(200), nullable=False, index=True)
-    description = db.Column(db.Text, nullable=True)
-    image = db.Column(db.String(500), nullable=True)
-    category = db.Column(db.String(50), nullable=True)
-    meal_type = db.Column(db.String(50), nullable=True)
-    cooking_time = db.Column(db.String(30), default="20 mins")
-    servings = db.Column(db.Integer, default=1)
-    difficulty = db.Column(db.String(20), default="easy")
-    is_veg = db.Column(db.Boolean, default=True)
-    ingredients = db.Column(db.Text, nullable=True)
-    steps = db.Column(db.Text, nullable=True)
-    tags = db.Column(db.Text, nullable=True)
-    health_benefits = db.Column(db.Text, nullable=True)
-    calories = db.Column(db.Integer, default=0)
-    protein = db.Column(db.Float, default=0)
-    carbs = db.Column(db.Float, default=0)
-    fats = db.Column(db.Float, default=0)
-    fiber = db.Column(db.Float, default=0)
-    sugar = db.Column(db.Float, default=0)
-    sodium = db.Column(db.Float, default=0)
-    potassium = db.Column(db.Float, default=0)
-    cholesterol = db.Column(db.Float, default=0)
-    bp_friendly = db.Column(db.Boolean, default=True)
-    diabetes_friendly = db.Column(db.Boolean, default=True)
-    weight_loss_friendly = db.Column(db.Boolean, default=True)
-    heart_friendly = db.Column(db.Boolean, default=True)
-    high_protein = db.Column(db.Boolean, default=False)
-    high_fiber = db.Column(db.Boolean, default=False)
-    low_sodium = db.Column(db.Boolean, default=True)
-    bp_score = db.Column(db.Float, default=0.0)
-    diabetes_score = db.Column(db.Float, default=0.0)
-    weight_loss_score = db.Column(db.Float, default=0.0)
-    nutrition_score = db.Column(db.Float, default=0.0)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-    favorites = db.relationship("Favorite", backref="recipe", cascade="all, delete-orphan")
-    meal_items = db.relationship("MealItem", backref="recipe")
-
-    def composite_score(self, conditions):
-        w = {}
-        if "High Blood Pressure" in conditions:
-            w["bp"] = 0.40
-        if any("Diabetes" in c for c in conditions):
-            w["diabetes"] = 0.35
-        if any("Weight Loss" in c for c in conditions):
-            w["weightloss"] = 0.25
-        if not w:
-            return self.nutrition_score or 50
-        t = sum(w.values())
-        s = 0
-        if "bp" in w:
-            s += (self.bp_score or 0) * w["bp"] / t
-        if "diabetes" in w:
-            s += (self.diabetes_score or 0) * w["diabetes"] / t
-        if "weightloss" in w:
-            s += (self.weight_loss_score or 0) * w["weightloss"] / t
-        return round(s, 1)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "name": self.name,
-            "category": self.category,
-            "is_veg": self.is_veg,
-            "calories": self.calories,
-            "protein": self.protein,
-            "carbs": self.carbs,
-            "fats": self.fats,
-            "fiber": self.fiber,
-            "sodium": self.sodium,
-            "potassium": self.potassium,
-            "ingredients": self.ingredients,
-            "health_benefits": self.health_benefits,
-            "bp_friendly": self.bp_friendly,
-            "bp_score": self.bp_score,
-            "cooking_time": self.cooking_time,
-        }
-
-
-class Favorite(db.Model):
-    __tablename__ = "favorites"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    recipe_id = db.Column(db.Integer, db.ForeignKey("recipes.id"), nullable=False)
-    saved_at = db.Column(db.DateTime, default=now_ist)
-
-    __table_args__ = (db.UniqueConstraint("user_id", "recipe_id"),)
-
-
-class MealPlan(db.Model):
-    __tablename__ = "mealplans"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    week_start_date = db.Column(db.Date, nullable=False)
-    generated_at = db.Column(db.DateTime, default=now_ist)
-    is_active = db.Column(db.Boolean, default=True)
-    notes = db.Column(db.Text, nullable=True)
-
-    items = db.relationship("MealItem", backref="mealplan", cascade="all, delete-orphan")
-
-
-class MealItem(db.Model):
-    __tablename__ = "mealitems"
-
-    id = db.Column(db.Integer, primary_key=True)
-    plan_id = db.Column(db.Integer, db.ForeignKey("mealplans.id"), nullable=False)
-    recipe_id = db.Column(db.Integer, db.ForeignKey("recipes.id"), nullable=False)
-    day = db.Column(db.String(20), nullable=False)
-    meal_slot = db.Column(db.String(30), nullable=False)
-    slot_order = db.Column(db.Integer, default=0)
-    completed = db.Column(db.Boolean, default=False)
-    completed_at = db.Column(db.DateTime, nullable=True)
-    locked = db.Column(db.Boolean, default=False)
-    note = db.Column(db.Text, nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-
-class GroceryItem(db.Model):
-    __tablename__ = "groceryitems"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
-    week_start = db.Column(db.Date, nullable=False)
-    ingredient_name = db.Column(db.String(200), nullable=False)
-    category = db.Column(db.String(50), default="Other")
-    quantity = db.Column(db.String(50), nullable=True)
-    purchased = db.Column(db.Boolean, default=False)
-    purchased_at = db.Column(db.DateTime, nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist)
-
-
-class NutritionDailyLog(db.Model):
-    __tablename__ = "nutritiondailylogs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    log_date = db.Column(db.Date, nullable=False, index=True)
-    total_calories = db.Column(db.Integer, default=0)
-    total_protein = db.Column(db.Float, default=0)
-    total_carbs = db.Column(db.Float, default=0)
-    total_fats = db.Column(db.Float, default=0)
-    total_fiber = db.Column(db.Float, default=0)
-    total_sodium = db.Column(db.Float, default=0)
-    total_potassium = db.Column(db.Float, default=0)
-    total_water = db.Column(db.Float, default=0)
-    meals_completed = db.Column(db.Integer, default=0)
-    meals_planned = db.Column(db.Integer, default=5)
-    health_score = db.Column(db.Float, default=0)
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    __table_args__ = (db.UniqueConstraint("user_id", "log_date"),)
-
-    def to_dict(self):
-        return {
-            "log_date": str(self.log_date),
-            "total_calories": self.total_calories,
-            "total_protein": self.total_protein,
-            "total_carbs": self.total_carbs,
-            "total_fats": self.total_fats,
-            "total_fiber": self.total_fiber,
-            "total_sodium": self.total_sodium,
-            "total_water": self.total_water,
-            "health_score": self.health_score,
-        }
-
-
-class Document(db.Model):
-    __tablename__ = "documents"
-
-    PLAN_LIMITS = {"free": 3, "normal": 3, "premium": 10, "family": 20}
-    CATEGORIES = {
-        "prescription": ("📄", "Prescription"),
-        "labreport": ("🧪", "Lab Report"),
-        "bloodtest": ("🩸", "Blood Test"),
-        "xray": ("🩻", "X-Ray"),
-        "mrict": ("🧠", "MRI / CT Scan"),
-        "vaccination": ("💉", "Vaccination"),
-        "insurance": ("🛡️", "Insurance"),
-        "doctornotes": ("📝", "Doctor Notes"),
-        "medicalcertificate": ("📋", "Medical Certificate"),
-        "other": ("📁", "Other"),
+class MealItem(FirestoreModel):
+    COLLECTION = "meal_items"
+
+    DEFAULTS = {
+        "plan_id": "",
+        "recipe_id": "",
+        "day": None,
+        "meal_slot": None,
+        "slot_order": 0,
+        "completed": False,
+        "completed_at": None,
+        "locked": False,
+        "note": None,
     }
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    title = db.Column(db.String(200), nullable=False)
-    doc_type = db.Column(db.String(50), nullable=False, default="other")
-    filename = db.Column(db.String(300), nullable=False)
-    file_path = db.Column(db.String(500), nullable=False)
-    file_size_kb = db.Column(db.Integer, nullable=True)
-    mime_type = db.Column(db.String(100), nullable=True)
-    doctor_name = db.Column(db.String(200), nullable=True)
-    hospital_name = db.Column(db.String(200), nullable=True)
-    report_date = db.Column(db.Date, nullable=True)
-    expiry_date = db.Column(db.Date, nullable=True)
-    tags = db.Column(db.Text, nullable=True)
-    notes = db.Column(db.Text, nullable=True)
-    is_important = db.Column(db.Boolean, default=False)
-    uploaded_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
 
-    @property
-    def type_icon(self):
-        return self.CATEGORIES.get(self.doc_type, ("", "Other"))[0]
+class Favorite(FirestoreModel):
+    COLLECTION = "favorites"
 
-    @property
-    def type_label(self):
-        return self.CATEGORIES.get(self.doc_type, ("", "Other"))[1]
-
-    @property
-    def is_image(self):
-        return self.mime_type in ("image/jpeg", "image/png", "image/jpg")
-
-    @property
-    def is_pdf(self):
-        return self.mime_type == "application/pdf"
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "title": self.title,
-            "doc_type": self.doc_type,
-            "type_icon": self.type_icon,
-            "type_label": self.type_label,
-            "filename": self.filename,
-            "file_size_kb": self.file_size_kb,
-            "mime_type": self.mime_type,
-            "is_image": self.is_image,
-            "is_pdf": self.is_pdf,
-            "doctor_name": self.doctor_name,
-            "hospital_name": self.hospital_name,
-            "report_date": str(self.report_date) if self.report_date else None,
-            "expiry_date": str(self.expiry_date) if self.expiry_date else None,
-            "notes": self.notes,
-            "is_important": self.is_important,
-            "tags": self.tags,
-            "uploaded_at": self.uploaded_at.strftime("%d %b %Y") if self.uploaded_at else None,
-            "uploaded_ts": self.uploaded_at.isoformat() if self.uploaded_at else None,
-        }
+    DEFAULTS = {
+        "recipe_id": "",
+        "saved_at": None,
+    }
 
 
-class EmailReportConfig(db.Model):
-    __tablename__ = "emailreportconfigs"
+class GroceryItem(FirestoreModel):
+    COLLECTION = "grocery_items"
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False)
-    is_enabled = db.Column(db.Boolean, default=False)
-    frequency = db.Column(db.String(20), default="weekly")
-    custom_days = db.Column(db.Integer, default=7)
-    send_time = db.Column(db.String(10), default="08:00")
-    email_recipients = db.Column(db.Text, default="")
-    report_period_days = db.Column(db.Integer, default=7)
-    include_weight = db.Column(db.Boolean, default=True)
-    include_bp = db.Column(db.Boolean, default=True)
-    include_water = db.Column(db.Boolean, default=True)
-    include_sleep = db.Column(db.Boolean, default=True)
-    include_steps = db.Column(db.Boolean, default=True)
-    include_exercise = db.Column(db.Boolean, default=True)
-    include_sugar = db.Column(db.Boolean, default=True)
-    include_nutrition = db.Column(db.Boolean, default=True)
-    include_suggestions = db.Column(db.Boolean, default=True)
-    include_achievements = db.Column(db.Boolean, default=True)
-    last_sent_at = db.Column(db.DateTime, nullable=True)
-    next_send_at = db.Column(db.DateTime, nullable=True)
-    total_sent = db.Column(db.Integer, default=0)
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-    @property
-    def recipient_list(self):
-        if not self.email_recipients:
-            return []
-        return [e.strip() for e in self.email_recipients.split(",") if e.strip()]
+    DEFAULTS = {
+        "week_start": None,
+        "ingredient_name": "",
+        "category": "Other",
+        "quantity": None,
+        "purchased": False,
+        "purchased_at": None,
+    }
 
 
-class EmailReportLog(db.Model):
-    __tablename__ = "emailreportlogs"
+class NutritionDailyLog(FirestoreModel):
+    COLLECTION = "nutrition_daily_logs"
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    sent_at = db.Column(db.DateTime, default=now_ist)
-    recipients = db.Column(db.Text, nullable=True)
-    period_start = db.Column(db.Date, nullable=True)
-    period_end = db.Column(db.Date, nullable=True)
-    status = db.Column(db.String(20), default="sent")
-    error_message = db.Column(db.Text, nullable=True)
-    health_score = db.Column(db.Float, nullable=True)
-
-
-class DailyHealthScore(db.Model):
-    __tablename__ = "dailyhealthscores"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    score_date = db.Column(db.Date, nullable=False, index=True)
-    bp_score = db.Column(db.Float, default=0)
-    weight_score = db.Column(db.Float, default=0)
-    water_score = db.Column(db.Float, default=0)
-    sleep_score = db.Column(db.Float, default=0)
-    exercise_score = db.Column(db.Float, default=0)
-    nutrition_score = db.Column(db.Float, default=0)
-    steps_score = db.Column(db.Float, default=0)
-    medicine_score = db.Column(db.Float, default=0)
-    total_score = db.Column(db.Float, default=0)
-    grade = db.Column(db.String(20), nullable=True)
-    computed_at = db.Column(db.DateTime, default=now_ist)
-
-    __table_args__ = (db.UniqueConstraint("user_id", "score_date"),)
-
-    @property
-    def grade_label(self):
-        s = self.total_score or 0
-        if s >= 90:
-            return "Excellent"
-        elif s >= 75:
-            return "Good"
-        elif s >= 60:
-            return "Fair"
-        elif s >= 40:
-            return "Needs Attention"
-        return "Critical"
-
-    def to_dict(self):
-        return {
-            "score_date": str(self.score_date),
-            "total_score": self.total_score,
-            "grade": self.grade_label,
-            "bp_score": self.bp_score,
-            "water_score": self.water_score,
-            "sleep_score": self.sleep_score,
-            "exercise_score": self.exercise_score,
-            "steps_score": self.steps_score,
-            "medicine_score": self.medicine_score,
-        }
+    DEFAULTS = {
+        "log_date": None,
+        "total_calories": 0,
+        "total_protein": 0,
+        "total_carbs": 0,
+        "total_fats": 0,
+        "total_fiber": 0,
+        "total_sodium": 0,
+        "total_potassium": 0,
+        "total_water": 0,
+        "meals_completed": 0,
+        "meals_planned": 5,
+        "health_score": 0,
+    }
 
 
-class Backup(db.Model):
-    __tablename__ = "backups"
+# ---------------------------------------------------------------------------
+# Email reports
+# ---------------------------------------------------------------------------
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    backup_type = db.Column(db.String(20), default="manual")
-    filename = db.Column(db.String(300), nullable=True)
-    file_path = db.Column(db.String(500), nullable=True)
-    file_size_kb = db.Column(db.Integer, nullable=True)
-    format = db.Column(db.String(20), default="json")
-    status = db.Column(db.String(20), default="completed")
-    created_at = db.Column(db.DateTime, default=now_ist, index=True)
+class EmailReportConfig(FirestoreModel):
+    COLLECTION = "email_report_configs"
 
-
-class AdminLog(db.Model):
-    __tablename__ = "adminlogs"
-
-    id = db.Column(db.Integer, primary_key=True)
-    admin_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
-    action = db.Column(db.String(200), nullable=False)
-    target_type = db.Column(db.String(50), nullable=True)
-    target_id = db.Column(db.Integer, nullable=True)
-    details = db.Column(db.Text, nullable=True)
-    ip_address = db.Column(db.String(50), nullable=True)
-    created_at = db.Column(db.DateTime, default=now_ist, index=True)
-
-
-class WeeklyInsight(db.Model):
-    __tablename__ = "weeklyinsights"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    week_start = db.Column(db.Date, nullable=False, index=True)
-    insight_text = db.Column(db.Text, nullable=False)
-    metric_type = db.Column(db.String(30), nullable=True)
-    change_value = db.Column(db.Float, nullable=True)
-    direction = db.Column(db.String(20), nullable=True)
-    priority = db.Column(db.Integer, default=3)
-    icon = db.Column(db.String(10), default="")
-    generated_at = db.Column(db.DateTime, default=now_ist)
+    DEFAULTS = {
+        "is_enabled": False,
+        "frequency": "weekly",
+        "custom_days": 7,
+        "send_time": "08:00",
+        "report_period_days": 7,
+        "email_recipients": "",
+        "include_weight": False,
+        "include_bp": False,
+        "include_water": False,
+        "include_sleep": False,
+        "include_steps": False,
+        "include_exercise": False,
+        "include_sugar": False,
+        "include_suggestions": False,
+        "include_achievements": False,
+        "next_send_at": None,
+    }
 
 
-class Alert(db.Model):
-    __tablename__ = "alerts"
+class EmailReportLog(FirestoreModel):
+    COLLECTION = "email_report_logs"
 
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
-    alert_type = db.Column(db.String(20), nullable=False)
-    category = db.Column(db.String(30), nullable=True)
-    title = db.Column(db.String(200), nullable=False)
-    message = db.Column(db.Text, nullable=False)
-    action_text = db.Column(db.String(100), nullable=True)
-    action_url = db.Column(db.String(200), nullable=True)
-    trigger_value = db.Column(db.Float, nullable=True)
-    is_read = db.Column(db.Boolean, default=False)
-    is_dismissed = db.Column(db.Boolean, default=False)
-    created_at = db.Column(db.DateTime, default=now_ist, index=True)
-    expires_at = db.Column(db.DateTime, nullable=True)
-
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "alert_type": self.alert_type,
-            "category": self.category,
-            "title": self.title,
-            "message": self.message,
-            "is_read": self.is_read,
-            "is_dismissed": self.is_dismissed,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-        }
-
-
-class UserSettings(db.Model):
-    __tablename__ = "usersettings"
-
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, unique=True)
-
-    # Medicine settings
-    med_notifications = db.Column(db.Boolean, default=True)
-    med_auto_stock = db.Column(db.Boolean, default=True)
-    med_snooze_mins = db.Column(db.Integer, default=10)
-    med_low_stock_threshold = db.Column(db.Integer, default=5)
-    med_sound = db.Column(db.String(50), default="medicine")
-
-    # Water settings
-    water_reminders = db.Column(db.Boolean, default=True)
-    water_target_litres = db.Column(db.Float, default=2.5)
-
-    # Sleep settings
-    sleep_reminders = db.Column(db.Boolean, default=True)
-    sleep_target_hours = db.Column(db.Float, default=7.5)
-
-    # Exercise settings
-    exercise_reminders = db.Column(db.Boolean, default=True)
-    exercise_target_mins = db.Column(db.Integer, default=30)
-
-    # General notification settings
-    notification_sound = db.Column(db.String(50), default="healthalert")
-    vibration_enabled = db.Column(db.Boolean, default=True)
-
-    created_at = db.Column(db.DateTime, default=now_ist)
-    updated_at = db.Column(db.DateTime, default=now_ist, onupdate=now_ist)
-
-
-# ============================================================
-# SEED DATA
-# ============================================================
-
-def seed_health_conditions():
-    conditions = [
-        {"name": "High Blood Pressure", "icon": "🩺", "category": "cardiovascular"},
-        {"name": "Type 2 Diabetes", "icon": "🩸", "category": "metabolic"},
-        {"name": "Pre-Diabetes", "icon": "🩸", "category": "metabolic"},
-        {"name": "High Cholesterol", "icon": "🧬", "category": "cardiovascular"},
-        {"name": "Weight Loss Goal", "icon": "⚖️", "category": "lifestyle"},
-        {"name": "Weight Gain Goal", "icon": "🍽️", "category": "lifestyle"},
-        {"name": "PCOS / PCOD", "icon": "🌸", "category": "hormonal"},
-        {"name": "Thyroid / Hypothyroid", "icon": "🦋", "category": "hormonal"},
-        {"name": "Heart Disease", "icon": "❤️", "category": "cardiovascular"},
-        {"name": "Kidney Disease / CKD", "icon": "🫘", "category": "metabolic"},
-        {"name": "Sleep Apnea", "icon": "😴", "category": "lifestyle"},
-        {"name": "Fatty Liver", "icon": "🫀", "category": "metabolic"},
-        {"name": "Acid Reflux / IBS", "icon": "🫃", "category": "digestive"},
-        {"name": "Healthy Lifestyle", "icon": "🥗", "category": "lifestyle"},
-        {"name": "Post-Pregnancy", "icon": "🤱", "category": "hormonal"},
-        {"name": "Menopause", "icon": "🌼", "category": "hormonal"},
-    ]
-
-    for c in conditions:
-        if not HealthCondition.query.filter_by(name=c["name"]).first():
-            db.session.add(HealthCondition(**c))
-    db.session.commit()
+    DEFAULTS = {
+        "status": "sent",
+        "recipients": "",
+        "report_period_days": 7,
+        "error_message": None,
+        "sent_at": None,
+    }

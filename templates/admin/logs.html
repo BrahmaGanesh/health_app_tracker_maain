@@ -42,7 +42,7 @@
       <div class="log-row">
         <span>📝</span>
         <span style="flex:1;">{{ log.action }}</span>
-        <span class="log-time">{{ log.created_at.strftime('%d %b %I:%M %p') }}</span>
+        <span class="log-time">{{ log.created_at | safe_strftime("%d %b %I:%M %p") }}</span>
       </div>
       {% endfor %}
       {% if admin_logs.pages > 1 %}
@@ -66,10 +66,10 @@
         <span>📧</span>
         <div style="flex:1;">
           <div>{{ log.recipients }}</div>
-          {% if log.period_start %}<div style="font-size:11px;color:var(--text-muted);">{{ log.period_start.strftime('%d %b') }} – {{ log.period_end.strftime('%d %b %Y') }}</div>{% endif %}
+          {% if log.period_start %}<div style="font-size:11px;color:var(--text-muted);">{{ log.period_start | safe_strftime("%d %b") }} – {{ log.period_end | safe_strftime("%d %b %Y") }}</div>{% endif %}
         </div>
         <span class="status-chip {{ 'status-sent' if log.status == 'sent' else 'status-failed' }}">{{ log.status|title }}</span>
-        <span class="log-time">{{ log.sent_at.strftime('%d %b %I:%M %p') }}</span>
+        <span class="log-time">{{ log.sent_at | safe_strftime("%d %b %I:%M %p") }}</span>
       </div>
       {% endfor %}
     {% else %}

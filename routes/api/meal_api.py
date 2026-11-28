@@ -1,349 +1,345 @@
-# ============================================================
-# routes/api/meal_api.py — Meals & Recipes API (APK)
-# ============================================================
-
-from flask import Blueprint, request, jsonify
+# routes/api/meal_api.py — Meal & Recipe API for APK
+from flask import Blueprint, jsonify, request
 from flask_jwt_extended import jwt_required, get_current_user
-from datetime import date, timedelta
-import random
+from datetime import date, datetime, timedelta
 
-from extensions import db
-from models import Recipe, MealPlan, MealItem, Favorite, GroceryItem
+from models import (
+    Recipe, MealPlan, MealItem, Favorite, GroceryItem,
+    NutritionDailyLog
+)
 
 meal_api_bp = Blueprint("meal_api", __name__)
 
 
 def ok(data=None, msg="Success", code=200):
     r = {"success": True, "message": msg}
-    if data is not None: r["data"] = data
+    if data is not None:
+        r["data"] = data
     return jsonify(r), code
 
 
-def err(msg="Error", code=400):
+def err(msg, code=400):
     return jsonify({"success": False, "message": msg}), code
 
 
-# ── RECIPES LIST ──────────────────────────────────────────────
+# ── RECIPE SEARCH & LIST ───────────────────────────────────────
+
 @meal_api_bp.route("/recipes", methods=["GET"])
 @jwt_required()
-def get_recipes():
-    user     = get_current_user()
-    search   = request.args.get("search", "").strip()
-    category = request.args.get("category", "all")
-    goal     = request.args.get("goal", "all")
-    diet     = request.args.get("diet", "all")
-    page     = int(request.args.get("page", 1))
-    per_page = int(request.args.get("per_page", 20))
+def list_recipes():
+    user = get_current_user()
+    page = request.args.get("page", 1, type=int) or 1
+    per_page = request.args.get("per_page", 12, type=int) or 12
 
-    q = Recipe.query
-    if search:
-        q = q.filter(Recipe.name.ilike(f"%{search}%"))
-    if category and category != "all":
-        q = q.filter(Recipe.category == category)
-    if goal == "bp":
-        q = q.filter(Recipe.bp_friendly == True)
-    elif goal == "weight":
-        q = q.filter(Recipe.weight_loss_friendly == True)
+    category = request.args.get("category", "")
+    meal_type = request.args.get("meal_type", "")
+    diet = request.args.get("diet", "")
+
+    recipes = Recipe.get_all()
+
+    if category:
+        recipes = [r for r in recipes if r.category == category]
+    if meal_type:
+        recipes = [r for r in recipes if r.meal_type == meal_type]
     if diet == "veg":
-        q = q.filter(Recipe.is_veg == True)
+        recipes = [r for r in recipes if r.is_veg]
     elif diet == "nonveg":
-        q = q.filter(Recipe.is_veg == False)
+        recipes = [r for r in recipes if not r.is_veg]
 
-    paginated = q.order_by(Recipe.name).paginate(page=page, per_page=per_page, error_out=False)
-    fav_ids   = {f.recipe_id for f in Favorite.query.filter_by(user_id=user.id).all()}
+    # Pagination (in-memory since Firestore doesn't support offset pagination easily)
+    total = len(recipes)
+    start = (page - 1) * per_page
+    end = start + per_page
+    paginated = recipes[start:end]
+
+    fav_ids = {f.recipe_id for f in Favorite.get_by_field("user_id", user.id)}
 
     recipes_data = []
-    for r in paginated.items:
+    for r in paginated:
         d = r.to_dict()
         d["is_favourite"] = r.id in fav_ids
-        d["score"]        = r.composite_score(user.condition_names)
+        d["score"] = r.composite_score(user.condition_names)
         recipes_data.append(d)
 
     categories = sorted(set(
-        r.category for r in Recipe.query.with_entities(Recipe.category).distinct().all()
-        if r.category
+        r.category for r in Recipe.get_all() if r.category
     ))
 
     return ok({
-        "recipes":    recipes_data,
-        "total":      paginated.total,
-        "page":       page,
-        "has_more":   paginated.has_next,
+        "recipes": recipes_data,
+        "total": total,
+        "page": page,
+        "has_more": (start + per_page) < total,
         "categories": categories,
     })
 
 
 # ── RECIPE DETAIL ─────────────────────────────────────────────
+
 @meal_api_bp.route("/recipes/<int:recipe_id>", methods=["GET"])
 @jwt_required()
 def get_recipe(recipe_id):
-    user   = get_current_user()
-    recipe = Recipe.query.get_or_404(recipe_id)
-    is_fav = Favorite.query.filter_by(user_id=user.id, recipe_id=recipe_id).first() is not None
+    user = get_current_user()
+    recipe = Recipe.get_by_id_or_404(recipe_id)
 
-    related = Recipe.query.filter(
-        Recipe.category == recipe.category, Recipe.id != recipe_id
-    ).limit(4).all()
+    fav_list = Favorite.get_all(filters={"user_id": user.id, "recipe_id": recipe.id})
+    is_fav = len(fav_list) > 0
 
     d = recipe.to_dict()
-    d["is_favourite"]  = is_fav
-    d["score"]         = recipe.composite_score(user.condition_names)
-    d["related"]       = [r.to_dict() for r in related]
+    d["is_favourite"] = is_fav
+    d["score"] = recipe.composite_score(user.condition_names)
+
+    # Related recipes (same category or meal_type)
+    related_recipes = Recipe.get_all(filters={"category": recipe.category})
+    related = [r for r in related_recipes if r.id != recipe.id][:4]
+
+    d["related"] = [r.to_dict() for r in related]
     d["ingredients_list"] = [i.strip() for i in (recipe.ingredients or "").split(",") if i.strip()]
 
     return ok(d)
 
 
 # ── TOGGLE FAVOURITE ──────────────────────────────────────────
+
 @meal_api_bp.route("/recipes/<int:recipe_id>/favourite", methods=["POST"])
 @jwt_required()
 def toggle_favourite(recipe_id):
-    user   = get_current_user()
-    Recipe.query.get_or_404(recipe_id)
+    user = get_current_user()
+    Recipe.get_by_id_or_404(recipe_id)
 
-    existing = Favorite.query.filter_by(user_id=user.id, recipe_id=recipe_id).first()
+    existing_list = Favorite.get_all(filters={"user_id": user.id, "recipe_id": recipe_id}, limit=1)
+    existing = existing_list[0] if existing_list else None
+
     if existing:
-        db.session.delete(existing)
-        db.session.commit()
+        existing.delete()
         return ok({"is_favourite": False}, "Removed from favourites")
     else:
         fav = Favorite(user_id=user.id, recipe_id=recipe_id)
-        db.session.add(fav)
-        db.session.commit()
-        return ok({"is_favourite": True}, "Added to favourites ❤️")
+        fav.save()
+        return ok({"is_favourite": True}, "Added to favourites")
 
 
-# ── GET FAVOURITES ────────────────────────────────────────────
-@meal_api_bp.route("/favourites", methods=["GET"])
+# ── MEAL PLAN ENDPOINTS ────────────────────────────────────────
+
+@meal_api_bp.route("/plans", methods=["GET"])
 @jwt_required()
-def get_favourites():
-    user  = get_current_user()
-    favs  = Favorite.query.filter_by(user_id=user.id).order_by(Favorite.saved_at.desc()).all()
-    return ok({"recipes": [f.recipe.to_dict() for f in favs]})
-
-
-# ── GET WEEKLY MEAL PLAN ──────────────────────────────────────
-@meal_api_bp.route("/plan", methods=["GET"])
-@jwt_required()
-def get_meal_plan():
-    user       = get_current_user()
-    today      = date.today()
-    week_start = today - timedelta(days=today.weekday())
-
-    active_plan = MealPlan.query.filter_by(
-        user_id=user.id, is_active=True
-    ).order_by(MealPlan.generated_at.desc()).first()
-
-    if not active_plan:
-        return ok({"has_plan": False, "plan": None, "week_start": str(week_start)})
-
-    days_data = {}
-    for day in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]:
-        items = MealItem.query.filter_by(
-            plan_id=active_plan.id, day=day
-        ).order_by(MealItem.slot_order.asc()).all()
-        days_data[day] = [
-            {
-                "id":        item.id,
-                "meal_slot": item.meal_slot,
-                "slot_order": item.slot_order,
-                "completed": item.completed,
-                "completed_at": item.completed_at.isoformat() if item.completed_at else None,
-                "recipe":    item.recipe.to_dict(),
-            }
-            for item in items
-        ]
-
-    # Today's stats
-    today_name = today.strftime("%A")
-    today_items= days_data.get(today_name, [])
-    meals_done = sum(1 for m in today_items if m["completed"])
-    meals_total= len(today_items)
-    today_calories = sum(m["recipe"]["calories"] for m in today_items if m["completed"])
-
-    return ok({
-        "has_plan":    True,
-        "plan_id":     active_plan.id,
-        "week_start":  str(active_plan.week_start_date),
-        "generated_at": active_plan.generated_at.isoformat(),
-        "days":        days_data,
-        "today": {
-            "day_name":    today_name,
-            "meals_done":  meals_done,
-            "meals_total": meals_total,
-            "meals_pct":   int(meals_done / meals_total * 100) if meals_total else 0,
-            "today_calories_consumed": today_calories,
-        }
-    })
-
-
-# ── GENERATE MEAL PLAN ────────────────────────────────────────
-@meal_api_bp.route("/plan/generate", methods=["POST"])
-@jwt_required()
-def generate_plan():
-    user       = get_current_user()
-    today      = date.today()
-    week_start = today - timedelta(days=today.weekday())
-
-    # Deactivate old
-    MealPlan.query.filter_by(user_id=user.id, is_active=True).update({"is_active": False})
-
-    plan = MealPlan(user_id=user.id, week_start_date=week_start, is_active=True)
-    db.session.add(plan)
-    db.session.flush()
-
-    SLOTS = [
-        ("Morning Drink", 1, 100),
-        ("Breakfast",     2, 320),
-        ("Lunch",         3, 500),
-        ("Snacks",        4, 180),
-        ("Dinner",        5, 400),
-    ]
-
-    SLOT_CATS = {
-        "Morning Drink": ["Morning", "BP Special"],
-        "Breakfast":     ["Breakfast"],
-        "Lunch":         ["Lunch"],
-        "Snacks":        ["Snack"],
-        "Dinner":        ["Dinner", "Soup"],
-    }
-
-    conditions = user.condition_names
-    diet_pref  = user.health_profile.diet_preference if user.health_profile else "vegetarian"
-
-    used_ids = []
-    for day in ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"]:
-        day_used = []
-        for slot_name, slot_order, cal_budget in SLOTS:
-            cats   = SLOT_CATS.get(slot_name, ["General"])
-            q      = Recipe.query.filter(Recipe.category.in_(cats))
-
-            if diet_pref in ("vegetarian", "vegan"):
-                q = q.filter(Recipe.is_veg == True)
-            if user.has_bp:
-                q = q.filter(Recipe.bp_friendly == True)
-            elif user.has_diabetes:
-                q = q.filter(Recipe.diabetes_friendly == True)
-
-            q = q.filter(Recipe.calories <= cal_budget * 1.5)
-            if day_used + used_ids[-15:]:
-                q = q.filter(~Recipe.id.in_(day_used + used_ids[-15:]))
-
-            recipes = q.all()
-            if not recipes:
-                recipes = Recipe.query.filter(Recipe.category.in_(cats)).all()
-
-            if recipes:
-                scored  = sorted(recipes, key=lambda r: r.composite_score(conditions), reverse=True)
-                recipe  = random.choice(scored[:5])
-                item    = MealItem(
-                    plan_id=plan.id, recipe_id=recipe.id,
-                    day=day, meal_slot=slot_name, slot_order=slot_order
-                )
-                db.session.add(item)
-                day_used.append(recipe.id)
-                used_ids.append(recipe.id)
-
-    db.session.commit()
-
-    # Generate grocery list
-    _generate_grocery(user.id, plan.id, week_start)
-
-    return ok({"plan_id": plan.id, "week_start": str(week_start)}, "Meal plan generated!", 201)
-
-
-def _generate_grocery(user_id, plan_id, week_start):
-    GroceryItem.query.filter_by(user_id=user_id, week_start=week_start).delete()
-    items = MealItem.query.filter_by(plan_id=plan_id).all()
-    seen  = set()
-    for item in items:
-        r = item.recipe
-        if not r.ingredients: continue
-        for ing in r.ingredients.split(","):
-            ing = ing.strip()
-            if not ing or ing.lower() in seen: continue
-            seen.add(ing.lower())
-            db.session.add(GroceryItem(
-                user_id=user_id, week_start=week_start,
-                ingredient_name=ing, category=_categorize(ing)
-            ))
-    db.session.commit()
-
-
-def _categorize(name):
-    n = name.lower()
-    if any(x in n for x in ["spinach","palak","methi","bathua","amaranth"]): return "Leafy Greens"
-    if any(x in n for x in ["banana","apple","orange","pomegranate","guava","papaya","amla"]): return "Fruits"
-    if any(x in n for x in ["tomato","onion","carrot","cucumber","capsicum","cauliflower","peas","beans","lauki","karela","gourd","potato","beetroot","mushroom"]): return "Vegetables"
-    if any(x in n for x in ["moong","masoor","toor","chana","rajma","lobia","urad","dal","lentil","chickpea","sprout","soya"]): return "Lentils & Legumes"
-    if any(x in n for x in ["rice","wheat","atta","oats","ragi","bajra","jowar","quinoa","millet","barley","rava","poha","bread"]): return "Grains & Cereals"
-    if any(x in n for x in ["milk","curd","yogurt","buttermilk","paneer","ghee","butter","dairy"]): return "Dairy"
-    if any(x in n for x in ["egg"]): return "Eggs"
-    if any(x in n for x in ["chicken","fish","salmon","sardine","mackerel","tuna","prawn"]): return "Protein / Non-Veg"
-    if any(x in n for x in ["almond","walnut","cashew","peanut","pumpkin seed","sunflower","flaxseed","chia","sesame"]): return "Nuts & Seeds"
-    if any(x in n for x in ["garlic","ginger","turmeric","cumin","coriander","pepper","cardamom","cinnamon","mustard","fenugreek","tulsi","mint","lemon","spice","masala","herb"]): return "Herbs & Spices"
-    return "Other"
-
-
-# ── MARK MEAL DONE ────────────────────────────────────────────
-@meal_api_bp.route("/plan/items/<int:item_id>/done", methods=["POST"])
-@jwt_required()
-def mark_meal_done(item_id):
-    from datetime import datetime
+def list_meal_plans():
     user = get_current_user()
-    item = MealItem.query.get_or_404(item_id)
-    if item.meal_plan.user_id != user.id: return err("Unauthorised", 403)
+    plans = MealPlan.get_all(filters={"user_id": user.id}, order_by="-week_start_date")
 
-    item.completed    = not item.completed
-    item.completed_at = datetime.utcnow() if item.completed else None
-    db.session.commit()
+    plans_data = []
+    for p in plans:
+        d = p.to_dict()
+        # Count meals
+        items = MealItem.get_all(filters={"plan_id": p.id})
+        d["meal_count"] = len(items)
+        plans_data.append(d)
 
-    return ok({"completed": item.completed, "item_id": item.id})
+    return ok({"plans": plans_data})
 
 
-# ── GROCERY LIST ──────────────────────────────────────────────
-@meal_api_bp.route("/grocery", methods=["GET"])
+@meal_api_bp.route("/plans", methods=["POST"])
 @jwt_required()
-def get_grocery():
-    user       = get_current_user()
-    today      = date.today()
-    week_start = today - timedelta(days=today.weekday())
-
-    items = GroceryItem.query.filter_by(
-        user_id=user.id, week_start=week_start
-    ).order_by(GroceryItem.category, GroceryItem.ingredient_name).all()
-
-    from collections import defaultdict
-    grouped = defaultdict(list)
-    for item in items:
-        grouped[item.category].append({
-            "id":         item.id,
-            "name":       item.ingredient_name,
-            "purchased":  item.purchased,
-            "category":   item.category,
-        })
-
-    total     = len(items)
-    purchased = sum(1 for i in items if i.purchased)
-
-    return ok({
-        "grouped":   dict(grouped),
-        "items":     [{"id": i.id, "name": i.ingredient_name, "purchased": i.purchased, "category": i.category} for i in items],
-        "total":     total,
-        "purchased": purchased,
-        "pct":       int(purchased / total * 100) if total else 0,
-        "week_start": str(week_start),
-    })
-
-
-# ── TOGGLE GROCERY ITEM ───────────────────────────────────────
-@meal_api_bp.route("/grocery/<int:item_id>/toggle", methods=["POST"])
-@jwt_required()
-def toggle_grocery(item_id):
-    from datetime import datetime
+def create_meal_plan():
     user = get_current_user()
-    item = GroceryItem.query.filter_by(id=item_id, user_id=user.id).first_or_404()
-    item.purchased    = not item.purchased
-    item.purchased_at = datetime.utcnow() if item.purchased else None
-    db.session.commit()
-    return ok({"purchased": item.purchased, "item_id": item.id})
+    data = request.get_json() or {}
+
+    week_start_str = data.get("week_start_date")
+    if not week_start_str:
+        return err("week_start_date required", 422)
+
+    week_start = datetime.strptime(week_start_str, "%Y-%m-%d").date()
+
+    # Deactivate previous plans
+    active_plans = MealPlan.get_all(filters={"user_id": user.id, "is_active": True})
+    for p in active_plans:
+        p.is_active = False
+        p.save()
+
+    plan = MealPlan(
+        user_id=user.id,
+        week_start_date=week_start,
+        generated_at=datetime.utcnow(),
+        is_active=True,
+        notes=data.get("notes", "")
+    )
+    plan.save()
+
+    return ok(plan.to_dict(), "Meal plan created", 201)
+
+
+@meal_api_bp.route("/plans/<int:plan_id>", methods=["GET"])
+@jwt_required()
+def get_meal_plan(plan_id):
+    user = get_current_user()
+    plan = MealPlan.get_by_id_or_404(plan_id)
+    if plan.user_id != user.id:
+        from flask import abort
+        abort(403)
+
+    items = MealItem.get_all(filters={"plan_id": plan.id})
+    plan_data = plan.to_dict()
+    plan_data["items"] = [item.to_dict() for item in items]
+
+    return ok(plan_data)
+
+
+@meal_api_bp.route("/plans/<int:plan_id>", methods=["DELETE"])
+@jwt_required()
+def delete_meal_plan(plan_id):
+    user = get_current_user()
+    plan = MealPlan.get_by_id_or_404(plan_id)
+    if plan.user_id != user.id:
+        from flask import abort
+        abort(403)
+
+    # Delete items first
+    items = MealItem.get_all(filters={"plan_id": plan.id})
+    for item in items:
+        item.delete()
+
+    plan.delete()
+    return ok(None, "Meal plan deleted")
+
+
+# ── MEAL ITEM ENDPOINTS ────────────────────────────────────────
+
+@meal_api_bp.route("/plans/<int:plan_id>/items", methods=["POST"])
+@jwt_required()
+def add_meal_item(plan_id):
+    user = get_current_user()
+    plan = MealPlan.get_by_id_or_404(plan_id)
+    if plan.user_id != user.id:
+        from flask import abort
+        abort(403)
+
+    data = request.get_json() or {}
+    recipe_id = data.get("recipe_id")
+    day = data.get("day")
+    meal_slot = data.get("meal_slot")
+
+    if not all([recipe_id, day, meal_slot]):
+        return err("recipe_id, day, meal_slot required", 422)
+
+    recipe = Recipe.get_by_id_or_404(recipe_id)
+
+    # Check for existing slot
+    existing_list = MealItem.get_all(filters={"plan_id": plan_id, "day": day, "meal_slot": meal_slot}, limit=1)
+    if existing_list:
+        return err("Meal slot already filled", 409)
+
+    # Get next slot_order
+    existing_items = MealItem.get_all(filters={"plan_id": plan_id, "day": day})
+    slot_order = max([i.slot_order for i in existing_items], default=-1) + 1
+
+    item = MealItem(
+        plan_id=plan_id,
+        recipe_id=recipe_id,
+        day=day,
+        meal_slot=meal_slot,
+        slot_order=slot_order,
+        completed=False,
+        locked=False,
+        note=data.get("note", "")
+    )
+    item.save()
+
+    return ok(item.to_dict(), "Meal item added", 201)
+
+
+@meal_api_bp.route("/items/<int:item_id>", methods=["PUT"])
+@jwt_required()
+def update_meal_item(item_id):
+    user = get_current_user()
+    item = MealItem.get_by_id_or_404(item_id)
+
+    plan = MealPlan.get_by_id(item.plan_id)
+    if not plan or plan.user_id != user.id:
+        from flask import abort
+        abort(403)
+
+    data = request.get_json() or {}
+    if "completed" in data:
+        item.completed = data["completed"]
+        item.completed_at = datetime.utcnow() if data["completed"] else None
+    if "note" in data:
+        item.note = data["note"]
+    if "locked" in data:
+        item.locked = data["locked"]
+    if "recipe_id" in data:
+        item.recipe_id = data["recipe_id"]
+
+    item.save()
+    return ok(item.to_dict(), "Meal item updated")
+
+
+@meal_api_bp.route("/items/<int:item_id>", methods=["DELETE"])
+@jwt_required()
+def delete_meal_item(item_id):
+    user = get_current_user()
+    item = MealItem.get_by_id_or_404(item_id)
+
+    plan = MealPlan.get_by_id(item.plan_id)
+    if not plan or plan.user_id != user.id:
+        from flask import abort
+        abort(403)
+
+    item.delete()
+    return ok(None, "Meal item deleted")
+
+
+# ── DAILY NUTRITION LOG ────────────────────────────────────────
+
+@meal_api_bp.route("/nutrition-log", methods=["GET"])
+@jwt_required()
+def get_nutrition_log():
+    user = get_current_user()
+    log_date_str = request.args.get("date")
+    log_date = datetime.strptime(log_date_str, "%Y-%m-%d").date() if log_date_str else date.today()
+
+    log = NutritionDailyLog.get_one(filters={"user_id": user.id, "log_date": log_date})
+
+    return ok(log.to_dict() if log else None)
+
+
+@meal_api_bp.route("/nutrition-log", methods=["POST"])
+@jwt_required()
+def save_nutrition_log():
+    user = get_current_user()
+    data = request.get_json() or {}
+
+    log_date_str = data.get("log_date", date.today().isoformat())
+    log_date = datetime.strptime(log_date_str, "%Y-%m-%d").date() if isinstance(log_date_str, str) else log_date_str
+
+    log = NutritionDailyLog.get_one(filters={"user_id": user.id, "log_date": log_date})
+    if not log:
+        log = NutritionDailyLog(user_id=user.id, log_date=log_date)
+
+    log.total_calories = data.get("total_calories", 0)
+    log.total_protein = data.get("total_protein", 0)
+    log.total_carbs = data.get("total_carbs", 0)
+    log.total_fats = data.get("total_fats", 0)
+    log.total_fiber = data.get("total_fiber", 0)
+    log.total_sodium = data.get("total_sodium", 0)
+    log.total_water = data.get("total_water", 0)
+    log.meals_completed = data.get("meals_completed", 0)
+    log.meals_planned = data.get("meals_planned", 5)
+
+    log.save()
+
+    return ok(log.to_dict(), "Nutrition log saved")
+
+
+@meal_api_bp.route("/nutrition-log/history", methods=["GET"])
+@jwt_required()
+def nutrition_history():
+    user = get_current_user()
+    days = request.args.get("days", 30, type=int) or 30
+    since = date.today() - timedelta(days=days)
+
+    logs = NutritionDailyLog.get_all(
+        filters={"user_id": user.id, "log_date_gte": since},
+        order_by="-log_date"
+    )
+
+    return ok({"logs": [l.to_dict() for l in logs]})
